@@ -7,6 +7,12 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.provider.MediaStore
+import android.os.Environment
+import android.widget.Toast
+import android.net.Uri
+import android.content.ContentUris
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -26,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "")
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
@@ -39,7 +47,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun DebtBookApp() {
+    val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
     var debts by remember { mutableStateOf(listOf<Debt>()) }
+    var loaded by remember { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val imported = importDebtsFromUri(activity, uri)
+            if (imported != null) {
+                debts = imported
+                Toast.makeText(activity, "تم استيراد دفتر الديون بنجاح", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(activity, "تعذر قراءة ملف النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        debts = loadBackup(activity)
+        loaded = true
+    }
+    LaunchedEffect(debts, loaded) {
+        if (loaded) saveBackup(activity, debts)
+    }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
     MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF8E4A63), secondary = Color(0xFFD79AAF), background = Color(0xFFFFF8FA))) {
@@ -65,14 +93,14 @@ fun DebtBookApp() {
                         selected = null
                     }
                 )
-                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, this@MainActivity)
+                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, this@MainActivity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) })
             }
         }
     }
 }
 
 @Composable
-fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity) {
+fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit) {
     val total = debts.filter { it.paidDate.isEmpty() }.sumOf { it.amount }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -93,6 +121,10 @@ fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, act
         Spacer(Modifier.height(16.dp))
         Button(onClick = { exportAllDebts(activity, debts) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
             Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("تصدير كل الديون كصورة")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(6.dp)); Text("استعادة نسخة من ملف الجهاز")
         }
         Spacer(Modifier.height(8.dp))
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -250,4 +282,95 @@ private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
         y += rowHeight
     }
     shareBitmap(activity, bitmap, "all_debts.png")
+}
+
+
+
+private const val BACKUP_FILE_NAME = "debt_book_backup.json"
+
+private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+    val resolver = activity.contentResolver
+    val existingUri = findBackupUri(activity)
+    val uri = existingUri ?: resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
+        put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_FILE_NAME)
+        put(MediaStore.Downloads.MIME_TYPE, "application/json")
+        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DebtBook")
+        put(MediaStore.Downloads.IS_PENDING, 1)
+    }) ?: return
+    try {
+        val root = JSONObject().apply {
+            put("version", 1)
+            put("app", "دفتر الديون")
+            put("updatedAt", System.currentTimeMillis())
+            put("debts", JSONArray().apply {
+                debts.forEach { debt ->
+                    put(JSONObject().apply {
+                        put("id", debt.id)
+                        put("person", debt.person)
+                        put("amount", debt.amount)
+                        put("debtDate", debt.debtDate)
+                        put("paidDate", debt.paidDate)
+                        put("note", debt.note)
+                    })
+                }
+            })
+        }
+        resolver.openOutputStream(uri, "wt")?.use { it.write(root.toString(2).toByteArray(Charsets.UTF_8)) }
+        resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+    } catch (_: Exception) { }
+}
+
+private fun findBackupUri(activity: MainActivity): Uri? {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return null
+    val projection = arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME)
+    activity.contentResolver.query(
+        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+        projection,
+        "\${MediaStore.Downloads.DISPLAY_NAME}=?",
+        arrayOf(BACKUP_FILE_NAME),
+        null
+    )?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
+        }
+    }
+    return null
+}
+
+private fun loadBackup(activity: MainActivity): List<Debt> {
+    val uri = findBackupUri(activity) ?: return emptyList()
+    return try {
+        val text = activity.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: return emptyList()
+        val array = JSONObject(text).optJSONArray("debts") ?: return emptyList()
+        List(array.length()) { i ->
+            val o = array.getJSONObject(i)
+            Debt(
+                o.optLong("id", System.currentTimeMillis() + i),
+                o.optString("person"),
+                o.optDouble("amount", 0.0),
+                o.optString("debtDate"),
+                o.optString("paidDate"),
+                o.optString("note")
+            )
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun importDebtsFromUri(activity: MainActivity, uri: Uri): List<Debt>? {
+    return try {
+        val text = activity.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: return null
+        val array = JSONObject(text).optJSONArray("debts") ?: return null
+        List(array.length()) { i ->
+            val o = array.getJSONObject(i)
+            Debt(
+                o.optLong("id", System.currentTimeMillis() + i),
+                o.optString("person"),
+                o.optDouble("amount", 0.0),
+                o.optString("debtDate"),
+                o.optString("paidDate"),
+                o.optString("note")
+            )
+        }
+    } catch (_: Exception) { null }
 }
