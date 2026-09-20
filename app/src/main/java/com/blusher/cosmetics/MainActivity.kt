@@ -35,7 +35,8 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0)\nprivate fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0)
+private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 
 class MainActivity : ComponentActivity() {
@@ -84,9 +85,15 @@ fun DebtBookApp() {
                     debt = selected!!,
                     activity = activity,
                     onBack = { selected = null },
-                    onPaid = {
-                        debts = debts.map { if (it.id == selected!!.id) it.copy(paidDate = today()) else it }
-                        selected = null
+                    onPayment = { payment ->
+                        val current = selected!!
+                        val newPaid = (current.paidAmount + payment).coerceAtMost(current.amount)
+                        val updated = current.copy(
+                            paidAmount = newPaid,
+                            paidDate = if (newPaid >= current.amount) today() else ""
+                        )
+                        debts = debts.map { if (it.id == current.id) updated else it }
+                        selected = updated
                     },
                     onDelete = {
                         debts = debts.filterNot { it.id == selected!!.id }
@@ -185,7 +192,8 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String) -
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double) -> Unit, onDelete: () -> Unit) {\n    var paymentText by remember(debt.id) { mutableStateOf("") }
+fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double) -> Unit, onDelete: () -> Unit) {
+    var paymentText by remember(debt.id) { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
@@ -197,7 +205,9 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 Text(debt.person, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
                 Text("المبلغ", color = Color.Gray)
-                Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))\n                Text("أصل الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount), color = Color.Gray)\n                if (debt.paidAmount > 0) Text("المسدد: " + String.format(Locale.US, "%.0f د.ع", debt.paidAmount), color = Color(0xFF4C8A63))
+                Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
+                Text("أصل الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount), color = Color.Gray)
+                if (debt.paidAmount > 0) Text("المسدد: " + String.format(Locale.US, "%.0f د.ع", debt.paidAmount), color = Color(0xFF4C8A63))
                 Spacer(Modifier.height(12.dp))
                 Text("تاريخ الدين: ${debt.debtDate}")
                 if (debt.paidDate.isNotEmpty()) Text("تاريخ التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
@@ -208,8 +218,28 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
         Spacer(Modifier.weight(1f))
         Button(onClick = { exportSingleDebt(activity, debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("تصدير الدين كصورة ومشاركة") }
         Spacer(Modifier.height(8.dp))
-        if (debt.paidDate.isEmpty()) {
-            Button(onClick = onPaid, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("تسجيل التسديد اليوم") }
+        if (remaining(debt) > 0) {
+            OutlinedTextField(
+                value = paymentText,
+                onValueChange = { paymentText = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("مبلغ التسديد") },
+                singleLine = true
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    val value = paymentText.toDoubleOrNull() ?: 0.0
+                    if (value > 0 && value <= remaining(debt)) {
+                        onPayment(value)
+                        paymentText = ""
+                    } else {
+                        Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp)
+            ) { Text("تسجيل التسديد") }
             Spacer(Modifier.height(8.dp))
         }
         OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حذف الدين") }
@@ -311,7 +341,8 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
                         put("amount", debt.amount)
                         put("debtDate", debt.debtDate)
                         put("paidDate", debt.paidDate)
-                        put("note", debt.note)\n                        put("paidAmount", debt.paidAmount)
+                        put("note", debt.note)
+                        put("paidAmount", debt.paidAmount)
                     })
                 }
             })
