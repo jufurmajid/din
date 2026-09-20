@@ -35,7 +35,8 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0)
+data class Payment(val amount: Double, val date: String)
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList())
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 
@@ -85,12 +86,13 @@ fun DebtBookApp() {
                     debt = selected!!,
                     activity = activity,
                     onBack = { selected = null },
-                    onPayment = { payment ->
+                    onPayment = { payment, paymentDate ->
                         val current = selected!!
                         val newPaid = (current.paidAmount + payment).coerceAtMost(current.amount)
                         val updated = current.copy(
                             paidAmount = newPaid,
-                            paidDate = if (newPaid >= current.amount) today() else ""
+                            paidDate = if (newPaid >= current.amount) paymentDate else "",
+                            payments = current.payments + Payment(payment, paymentDate)
                         )
                         debts = debts.map { if (it.id == current.id) updated else it }
                         selected = updated
@@ -192,8 +194,9 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String) -
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double) -> Unit, onDelete: () -> Unit) {
+fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double, String) -> Unit, onDelete: () -> Unit) {
     var paymentText by remember(debt.id) { mutableStateOf("") }
+    var paymentDate by remember(debt.id) { mutableStateOf(today()) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
@@ -208,6 +211,8 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
                 Text("أصل الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount), color = Color.Gray)
                 if (debt.paidAmount > 0) Text("المسدد: " + String.format(Locale.US, "%.0f د.ع", debt.paidAmount), color = Color(0xFF4C8A63))
+                Text("المتبقي: " + String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontWeight = FontWeight.Bold)
+                if (debt.payments.isNotEmpty()) { Spacer(Modifier.height(10.dp)); Text("سجل التسديدات", fontWeight = FontWeight.Bold); debt.payments.forEach { p -> Text("• " + p.date + " — " + String.format(Locale.US, "%.0f د.ع", p.amount), color = Color(0xFF4C8A63)) } }
                 Spacer(Modifier.height(12.dp))
                 Text("تاريخ الدين: ${debt.debtDate}")
                 if (debt.paidDate.isNotEmpty()) Text("تاريخ التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
@@ -227,11 +232,13 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 singleLine = true
             )
             Spacer(Modifier.height(8.dp))
+            OutlinedTextField(paymentDate, { paymentDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ التسديد") }, singleLine = true)
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
                     val value = paymentText.toDoubleOrNull() ?: 0.0
                     if (value > 0 && value <= remaining(debt)) {
-                        onPayment(value)
+                        onPayment(value, paymentDate.ifBlank { today() })
                         paymentText = ""
                     } else {
                         Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
@@ -264,26 +271,19 @@ private fun shareBitmap(activity: MainActivity, bitmap: Bitmap, fileName: String
 }
 
 private fun makeDebtBitmap(debt: Debt): Bitmap {
-    val width = 1080
-    val height = 900
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    canvas.drawColor(android.graphics.Color.WHITE)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(40,40,40); textSize = 46f }
-    paint.textAlign = Paint.Align.RIGHT
-    canvas.drawText("سند دين", 980f, 90f, paint)
-    paint.textSize = 58f; paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-    canvas.drawText(debt.person, 980f, 190f, paint)
-    paint.textSize = 48f; paint.typeface = android.graphics.Typeface.DEFAULT
-    canvas.drawText("المبلغ: " + String.format(Locale.US, "%.0f", debt.amount) + " د.ع", 980f, 300f, paint)
-    canvas.drawText("تاريخ الدين: " + debt.debtDate, 980f, 390f, paint)
-    canvas.drawText(if (debt.paidDate.isBlank()) "الحالة: غير مسدد" else "تاريخ التسديد: " + debt.paidDate, 980f, 480f, paint)
-    if (debt.note.isNotBlank()) canvas.drawText("ملاحظة: " + debt.note, 980f, 570f, paint)
-    paint.textSize = 34f
-    canvas.drawText("دفتر الديون", 980f, 800f, paint)
+    val width = 1080; val height = 760 + debt.payments.size * 70
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap); canvas.drawColor(android.graphics.Color.WHITE)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(40,40,40); textSize = 42f; textAlign = Paint.Align.RIGHT }
+    var y = 80f; paint.typeface = android.graphics.Typeface.DEFAULT_BOLD; canvas.drawText("تفاصيل الدين",980f,y,paint); y+=80; paint.textSize=54f; canvas.drawText(debt.person,980f,y,paint); y+=85; paint.textSize=40f; paint.typeface=android.graphics.Typeface.DEFAULT
+    canvas.drawText("أصل الدين: "+String.format(Locale.US,"%.0f",debt.amount)+" د.ع",980f,y,paint); y+=60
+    canvas.drawText("المسدد: "+String.format(Locale.US,"%.0f",debt.paidAmount)+" د.ع",980f,y,paint); y+=60
+    paint.typeface=android.graphics.Typeface.DEFAULT_BOLD; canvas.drawText("المتبقي: "+String.format(Locale.US,"%.0f",remaining(debt))+" د.ع",980f,y,paint); y+=70; paint.typeface=android.graphics.Typeface.DEFAULT
+    canvas.drawText("تاريخ الدين: "+debt.debtDate,980f,y,paint); y+=60
+    if(debt.note.isNotBlank()){ canvas.drawText("ملاحظة: "+debt.note,980f,y,paint); y+=65 }
+    paint.typeface=android.graphics.Typeface.DEFAULT_BOLD; canvas.drawText("سجل التسديدات:",980f,y,paint); y+=60; paint.typeface=android.graphics.Typeface.DEFAULT
+    if(debt.payments.isEmpty()) canvas.drawText("لا توجد تسديدات مسجلة",980f,y,paint) else debt.payments.forEachIndexed { index, p -> canvas.drawText((index+1).toString()+". "+p.date+" — "+String.format(Locale.US,"%.0f",p.amount)+" د.ع",980f,y,paint); y+=65 }
     return bitmap
 }
-
 private fun exportSingleDebt(activity: MainActivity, debt: Debt) {
     shareBitmap(activity, makeDebtBitmap(debt), "debt_" + debt.id + ".png")
 }
@@ -343,6 +343,7 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
                         put("paidDate", debt.paidDate)
                         put("note", debt.note)
                         put("paidAmount", debt.paidAmount)
+                        put("payments", JSONArray().apply { debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) } })
                     })
                 }
             })
@@ -382,7 +383,9 @@ private fun loadBackup(activity: MainActivity): List<Debt> {
                 o.optDouble("amount", 0.0),
                 o.optString("debtDate"),
                 o.optString("paidDate"),
-                o.optString("note")
+                o.optString("note"),
+                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
+                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } }
             )
         }
     } catch (_: Exception) { emptyList() }
@@ -400,7 +403,9 @@ private fun importDebtsFromUri(activity: MainActivity, uri: Uri): List<Debt>? {
                 o.optDouble("amount", 0.0),
                 o.optString("debtDate"),
                 o.optString("paidDate"),
-                o.optString("note")
+                o.optString("note"),
+                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
+                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } }
             )
         }
     } catch (_: Exception) { null }
