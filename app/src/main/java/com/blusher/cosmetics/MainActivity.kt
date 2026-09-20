@@ -35,7 +35,7 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "")
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0)\nprivate fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 
 class MainActivity : ComponentActivity() {
@@ -101,7 +101,7 @@ fun DebtBookApp() {
 
 @Composable
 fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit) {
-    val total = debts.filter { it.paidDate.isEmpty() }.sumOf { it.amount }
+    val total = debts.sumOf { remaining(it) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -115,7 +115,7 @@ fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, act
             Column(Modifier.padding(20.dp)) {
                 Text("إجمالي الديون المتبقية", color = Color.DarkGray)
                 Text(String.format(Locale.US, "%.0f د.ع", total), fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("${debts.count { it.paidDate.isEmpty() }} دين غير مسدد")
+                Text("${debts.count { remaining(it) > 0 }} دين غير مسدد")
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -152,7 +152,7 @@ fun DebtCard(debt: Debt, onOpen: (Debt) -> Unit) {
                 Text("تاريخ الدين: ${debt.debtDate}", color = Color.Gray)
                 if (debt.paidDate.isNotEmpty()) Text("تم التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
             }
-            Text(String.format(Locale.US, "%.0f د.ع", debt.amount), fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
+            Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
         }
     }
 }
@@ -185,7 +185,7 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String) -
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPaid: () -> Unit, onDelete: () -> Unit) {
+fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double) -> Unit, onDelete: () -> Unit) {\n    var paymentText by remember(debt.id) { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
@@ -197,7 +197,7 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 Text(debt.person, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
                 Text("المبلغ", color = Color.Gray)
-                Text(String.format(Locale.US, "%.0f د.ع", debt.amount), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
+                Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))\n                Text("أصل الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount), color = Color.Gray)\n                if (debt.paidAmount > 0) Text("المسدد: " + String.format(Locale.US, "%.0f د.ع", debt.paidAmount), color = Color(0xFF4C8A63))
                 Spacer(Modifier.height(12.dp))
                 Text("تاريخ الدين: ${debt.debtDate}")
                 if (debt.paidDate.isNotEmpty()) Text("تاريخ التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
@@ -311,7 +311,7 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
                         put("amount", debt.amount)
                         put("debtDate", debt.debtDate)
                         put("paidDate", debt.paidDate)
-                        put("note", debt.note)
+                        put("note", debt.note)\n                        put("paidAmount", debt.paidAmount)
                     })
                 }
             })
