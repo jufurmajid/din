@@ -82,7 +82,7 @@ fun DebtBookApp() {
                 )
                 selected != null -> DebtDetailsScreen(
                     debt = selected!!,
-                    activity = this@MainActivity,
+                    activity = activity,
                     onBack = { selected = null },
                     onPaid = {
                         debts = debts.map { if (it.id == selected!!.id) it.copy(paidDate = today()) else it }
@@ -93,7 +93,7 @@ fun DebtBookApp() {
                         selected = null
                     }
                 )
-                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, this@MainActivity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) })
+                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, activity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) })
             }
         }
     }
