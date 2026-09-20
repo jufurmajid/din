@@ -62,11 +62,11 @@ fun DebtBookApp() {
         }
     }
     LaunchedEffect(Unit) {
-        debts = loadBackup(activity)
+        // Start safely with an empty ledger. Backup access is done only when the user requests restore.
         loaded = true
     }
     LaunchedEffect(debts, loaded) {
-        if (loaded) saveBackup(activity, debts)
+        // Automatic MediaStore backup is temporarily disabled to prevent startup/device-specific crashes.
     }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
