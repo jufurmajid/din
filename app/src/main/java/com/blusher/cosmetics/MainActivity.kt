@@ -1,6 +1,12 @@
 package com.blusher.cosmetics
 
 import android.os.Bundle
+import android.content.ContentValues
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -48,6 +54,7 @@ fun DebtBookApp() {
                 )
                 selected != null -> DebtDetailsScreen(
                     debt = selected!!,
+                    activity = this@MainActivity,
                     onBack = { selected = null },
                     onPaid = {
                         debts = debts.map { if (it.id == selected!!.id) it.copy(paidDate = today()) else it }
@@ -58,14 +65,14 @@ fun DebtBookApp() {
                         selected = null
                     }
                 )
-                else -> HomeScreen(debts, { showAdd = true }, { selected = it })
+                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, this@MainActivity)
             }
         }
     }
 }
 
 @Composable
-fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit) {
+fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity) {
     val total = debts.filter { it.paidDate.isEmpty() }.sumOf { it.amount }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -84,6 +91,10 @@ fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit) {
             }
         }
         Spacer(Modifier.height(16.dp))
+        Button(onClick = { exportAllDebts(activity, debts) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("تصدير كل الديون كصورة")
+        }
+        Spacer(Modifier.height(8.dp))
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
             Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("إضافة دين جديد")
         }
@@ -142,7 +153,7 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String) -
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, onBack: () -> Unit, onPaid: () -> Unit, onDelete: () -> Unit) {
+fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPaid: () -> Unit, onDelete: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
@@ -163,10 +174,80 @@ fun DebtDetailsScreen(debt: Debt, onBack: () -> Unit, onPaid: () -> Unit, onDele
             }
         }
         Spacer(Modifier.weight(1f))
+        Button(onClick = { exportSingleDebt(activity, debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("تصدير الدين كصورة ومشاركة") }
+        Spacer(Modifier.height(8.dp))
         if (debt.paidDate.isEmpty()) {
             Button(onClick = onPaid, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("تسجيل التسديد اليوم") }
             Spacer(Modifier.height(8.dp))
         }
         OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حذف الدين") }
     }
+}
+
+
+private fun shareBitmap(activity: MainActivity, bitmap: Bitmap, fileName: String) {
+    val values = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/DebtBook")
+    }
+    val uri = activity.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+    activity.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "image/png"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    activity.startActivity(Intent.createChooser(intent, "مشاركة صورة الدين"))
+}
+
+private fun makeDebtBitmap(debt: Debt): Bitmap {
+    val width = 1080
+    val height = 900
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    canvas.drawColor(android.graphics.Color.WHITE)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(40,40,40); textSize = 46f }
+    paint.textAlign = Paint.Align.RIGHT
+    canvas.drawText("سند دين", 980f, 90f, paint)
+    paint.textSize = 58f; paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    canvas.drawText(debt.person, 980f, 190f, paint)
+    paint.textSize = 48f; paint.typeface = android.graphics.Typeface.DEFAULT
+    canvas.drawText("المبلغ: " + String.format(Locale.US, "%.0f", debt.amount) + " د.ع", 980f, 300f, paint)
+    canvas.drawText("تاريخ الدين: " + debt.debtDate, 980f, 390f, paint)
+    canvas.drawText(if (debt.paidDate.isBlank()) "الحالة: غير مسدد" else "تاريخ التسديد: " + debt.paidDate, 980f, 480f, paint)
+    if (debt.note.isNotBlank()) canvas.drawText("ملاحظة: " + debt.note, 980f, 570f, paint)
+    paint.textSize = 34f
+    canvas.drawText("دفتر الديون", 980f, 800f, paint)
+    return bitmap
+}
+
+private fun exportSingleDebt(activity: MainActivity, debt: Debt) {
+    shareBitmap(activity, makeDebtBitmap(debt), "debt_" + debt.id + ".png")
+}
+
+private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
+    if (debts.isEmpty()) return
+    val rowHeight = 120
+    val width = 1200
+    val height = 260 + debts.size * rowHeight
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    canvas.drawColor(android.graphics.Color.WHITE)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(35,35,35); textSize = 42f }
+    paint.textAlign = Paint.Align.RIGHT
+    paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    canvas.drawText("سجل الديون الكامل", 1100f, 80f, paint)
+    paint.typeface = android.graphics.Typeface.DEFAULT
+    canvas.drawText("العدد: " + debts.size + "    الإجمالي: " + String.format(Locale.US, "%.0f", debts.sumOf { it.amount }) + " د.ع", 1100f, 150f, paint)
+    var y = 250f
+    debts.forEachIndexed { index, debt ->
+        paint.textSize = 34f
+        canvas.drawText((index + 1).toString() + ". " + debt.person, 1100f, y, paint)
+        canvas.drawText(String.format(Locale.US, "%.0f", debt.amount) + " د.ع", 760f, y, paint)
+        canvas.drawText("دين: " + debt.debtDate, 480f, y, paint)
+        canvas.drawText(if (debt.paidDate.isBlank()) "غير مسدد" else "تسديد: " + debt.paidDate, 180f, y, paint)
+        y += rowHeight
+    }
+    shareBitmap(activity, bitmap, "all_debts.png")
 }
