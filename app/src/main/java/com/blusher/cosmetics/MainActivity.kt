@@ -382,26 +382,45 @@ private fun exportSingleDebt(activity: MainActivity, debt: Debt) {
 
 private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
     if (debts.isEmpty()) return
-    val rowHeight = 120
-    val width = 1200
-    val height = 260 + debts.size * rowHeight
+    val width = 1400
+    val rowHeight = 230
+    val height = 380 + debts.size * rowHeight
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     canvas.drawColor(android.graphics.Color.WHITE)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(35,35,35); textSize = 42f }
-    paint.textAlign = Paint.Align.RIGHT
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(35,35,35); textAlign = Paint.Align.RIGHT }
+    val right = 1320f
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-    canvas.drawText("سجل الديون الكامل", 1100f, 80f, paint)
+    paint.textSize = 52f
+    canvas.drawText("سجل الديون الكامل", right, 75f, paint)
     paint.typeface = android.graphics.Typeface.DEFAULT
-    canvas.drawText("العدد: " + debts.size + "    الإجمالي: " + String.format(Locale.US, "%.0f", debts.sumOf { it.amount }) + " د.ع", 1100f, 150f, paint)
-    var y = 250f
+    paint.textSize = 34f
+    canvas.drawText("العدد: " + debts.size + "    إجمالي الديون: " + String.format(Locale.US, "%.0f", debts.sumOf { it.amount }) + " د.ع", right, 135f, paint)
+    canvas.drawText("المسدد: " + String.format(Locale.US, "%.0f", debts.sumOf { it.paidAmount }) + " د.ع    المتبقي: " + String.format(Locale.US, "%.0f", debts.sumOf { remaining(it) }) + " د.ع", right, 190f, paint)
+    var y = 285f
     debts.forEachIndexed { index, debt ->
-        paint.textSize = 34f
-        canvas.drawText((index + 1).toString() + ". " + debt.person, 1100f, y, paint)
-        canvas.drawText(String.format(Locale.US, "%.0f", debt.amount) + " د.ع", 760f, y, paint)
-        canvas.drawText("دين: " + debt.debtDate, 480f, y, paint)
-        canvas.drawText(if (debt.paidDate.isBlank()) "غير مسدد" else "تسديد: " + debt.paidDate, 180f, y, paint)
-        y += rowHeight
+        paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        paint.textSize = 38f
+        canvas.drawText((index + 1).toString() + ". " + debt.person, right, y, paint)
+        y += 48f
+        paint.typeface = android.graphics.Typeface.DEFAULT
+        paint.textSize = 31f
+        canvas.drawText("الدين: " + String.format(Locale.US, "%.0f", debt.amount) + " د.ع    |    تاريخ الدين: " + debt.debtDate, right, y, paint)
+        y += 43f
+        canvas.drawText("المسدد: " + String.format(Locale.US, "%.0f", debt.paidAmount) + " د.ع    |    المتبقي: " + String.format(Locale.US, "%.0f", remaining(debt)) + " د.ع", right, y, paint)
+        y += 43f
+        val status = if (remaining(debt) <= 0.0) "مسدد بالكامل" else "غير مسدد بالكامل"
+        val lastPayment = debt.payments.lastOrNull()?.date
+        canvas.drawText(if (lastPayment != null) "الحالة: " + status + "    |    آخر تسديد: " + lastPayment else "الحالة: " + status + "    |    لا توجد تسديدات", right, y, paint)
+        y += 43f
+        if (debt.note.isNotBlank()) {
+            val safeNote = if (debt.note.length > 55) debt.note.take(52) + "..." else debt.note
+            canvas.drawText("ملاحظة: " + safeNote, right, y, paint)
+        }
+        paint.color = android.graphics.Color.rgb(225,225,225)
+        canvas.drawLine(80f, y + 28f, right, y + 28f, paint)
+        paint.color = android.graphics.Color.rgb(35,35,35)
+        y += 53f
     }
     shareBitmap(activity, bitmap, "all_debts.png")
 }
