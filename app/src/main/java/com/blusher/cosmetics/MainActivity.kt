@@ -8,6 +8,12 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import android.provider.MediaStore
 import android.os.Environment
 import android.widget.Toast
@@ -41,7 +47,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class Payment(val amount: Double, val date: String)
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "")
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "", val photoData: String = "")
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
@@ -110,8 +116,8 @@ fun DebtBookApp() {
             when {
                 showAdd -> AddDebtScreen(
                     onBack = { showAdd = false },
-                    onSave = { person, amount, date, note, phone, location, photoUri ->
-                        debts = debts + Debt(System.currentTimeMillis(), person, amount, date, note = note, phone = phone, location = location, photoUri = photoUri)
+                    onSave = { person, amount, date, note, phone, location, photoData ->
+                        debts = debts + Debt(System.currentTimeMillis(), person, amount, date, note = note, phone = phone, location = location, photoData = photoData)
                         showAdd = false
                     }
                 )
@@ -220,10 +226,13 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
     var note by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(today()) }
-    var photoUri by remember { mutableStateOf("") }
+    var photoData by remember { mutableStateOf("") }
     val context = androidx.compose.ui.platform.LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) photoUri = uri.toString()
+        if (uri != null) {
+            photoData = encodeCustomerPhoto(context, uri) ?: ""
+            if (photoData.isBlank()) Toast.makeText(context, "تعذر قراءة الصورة", Toast.LENGTH_SHORT).show()
+        }
     }
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -235,10 +244,10 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     FilledIconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(86.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = SoftPink)) {
-                        Icon(if (photoUri.isBlank()) Icons.Default.CameraAlt else Icons.Default.CheckCircle, "إضافة صورة", tint = Pink, modifier = Modifier.size(38.dp))
+                        Icon(if (photoData.isBlank()) Icons.Default.CameraAlt else Icons.Default.CheckCircle, "إضافة صورة", tint = Pink, modifier = Modifier.size(38.dp))
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text(if (photoUri.isBlank()) "إضافة صورة (اختياري)" else "تم اختيار الصورة", color = if (photoUri.isBlank()) Color.Gray else Green)
+                    Text(if (photoData.isBlank()) "إضافة صورة (اختياري)" else "تم حفظ الصورة", color = if (photoData.isBlank()) Color.Gray else Green)
                 }
             }
             item { OutlinedTextField(person, { person = it }, Modifier.fillMaxWidth(), label = { Text("اسم الزبون *") }, leadingIcon = { Icon(Icons.Default.Person, null) }, singleLine = true) }
@@ -251,7 +260,7 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
         }
         Button(onClick = {
             val value = amount.toDoubleOrNull() ?: 0.0
-            if (person.isNotBlank() && value > 0) onSave(person.trim(), value, date.ifBlank { today() }, note.trim(), phone.trim(), location.trim(), photoUri)
+            if (person.isNotBlank() && value > 0) onSave(person.trim(), value, date.ifBlank { today() }, note.trim(), phone.trim(), location.trim(), photoData)
             else Toast.makeText(context, "أدخل اسم الزبون ومبلغ الدين", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
             Text("حفظ", fontWeight = FontWeight.Bold)
@@ -274,7 +283,12 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
             item {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.AccountCircle, null, tint = Pink, modifier = Modifier.size(82.dp))
+                        val customerBitmap = remember(debt.photoData) { decodeCustomerPhoto(debt.photoData) }
+                        if (customerBitmap != null) {
+                            Image(customerBitmap.asImageBitmap(), "صورة الزبون", modifier = Modifier.size(92.dp), contentScale = ContentScale.Crop)
+                        } else {
+                            Icon(Icons.Default.AccountCircle, null, tint = Pink, modifier = Modifier.size(82.dp))
+                        }
                         Text(debt.person, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
                         if (debt.phone.isNotBlank()) Text(debt.phone, color = Color.Gray)
                         if (debt.location.isNotBlank()) Text(debt.location, color = Color.Gray)
@@ -471,13 +485,30 @@ private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
 
 
 
+private fun encodeCustomerPhoto(context: Context, uri: Uri): String? {
+    return try {
+        val original = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return null
+        val maxSide = 720
+        val scale = minOf(1f, maxSide.toFloat() / maxOf(original.width, original.height).toFloat())
+        val bitmap = if (scale < 1f) Bitmap.createScaledBitmap(original, (original.width * scale).toInt(), (original.height * scale).toInt(), true) else original
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (_: Exception) { null }
+}
+
+private fun decodeCustomerPhoto(data: String): Bitmap? {
+    if (data.isBlank()) return null
+    return try { BitmapFactory.decodeByteArray(Base64.decode(data, Base64.DEFAULT), 0, Base64.decode(data, Base64.DEFAULT).size) } catch (_: Exception) { null }
+}
+
 private fun debtsToJson(debts: List<Debt>): String {
     return JSONArray().apply {
         debts.forEach { debt ->
             put(JSONObject().apply {
                 put("id", debt.id); put("person", debt.person); put("amount", debt.amount)
                 put("debtDate", debt.debtDate); put("paidDate", debt.paidDate); put("note", debt.note)
-                put("paidAmount", debt.paidAmount); put("phone", debt.phone); put("location", debt.location); put("photoUri", debt.photoUri)
+                put("paidAmount", debt.paidAmount); put("phone", debt.phone); put("location", debt.location); put("photoUri", debt.photoUri); put("photoData", debt.photoData)
                 put("payments", JSONArray().apply {
                     debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) }
                 })
@@ -499,7 +530,7 @@ private fun parseDebtsArray(text: String): List<Debt> {
                 if (ps != null) for (j in 0 until ps.length()) {
                     val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
                 }
-            }, o.optString("phone"), o.optString("location"), o.optString("photoUri")
+            }, o.optString("phone"), o.optString("location"), o.optString("photoUri"), o.optString("photoData")
         )
     }
 }
