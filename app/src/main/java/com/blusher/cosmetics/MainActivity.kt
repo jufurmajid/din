@@ -14,6 +14,8 @@ import java.io.ByteArrayOutputStream
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.delay
 import android.provider.MediaStore
 import android.os.Environment
 import android.widget.Toast
@@ -88,6 +90,7 @@ fun DebtBookApp() {
     val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
     var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
+    var showSplash by remember { mutableStateOf(true) }
     val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -109,13 +112,25 @@ fun DebtBookApp() {
             }
         }
     }
-    LaunchedEffect(Unit) { loaded = true }
+    LaunchedEffect(Unit) { loaded = true; delay(1800); showSplash = false }
     LaunchedEffect(debts, loaded) {
         if (loaded) {
             activity.latestDebts = debts
             saveLocalDebts(activity, debts)
         }
     }
+    if (showSplash) {
+        Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+            Image(
+                painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
+                contentDescription = "شاشة البداية",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+        return
+    }
+
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
     BackHandler(enabled = showAdd || selected != null) {
