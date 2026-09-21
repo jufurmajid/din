@@ -429,44 +429,41 @@ private fun loadLocalDebts(context: Context): List<Debt> {
 
 private fun saveLocalDebts(context: Context, debts: List<Debt>) {
     try {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, debtsToJson(debts)).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, debtsToJson(debts)).commit()
     } catch (_: Exception) { }
 }
 
 
 private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
-    val resolver = activity.contentResolver
-    val existingUri = findBackupUri(activity)
-    val uri = existingUri ?: resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
-        put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_FILE_NAME)
-        put(MediaStore.Downloads.MIME_TYPE, "application/json")
-        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DebtBook")
-        put(MediaStore.Downloads.IS_PENDING, 1)
-    }) ?: return
     try {
+        val resolver = activity.contentResolver
+        val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "ديون احتياط_" + stamp + ".json")
+            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DebtBook")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }) ?: return
         val root = JSONObject().apply {
-            put("version", 1)
+            put("version", 2)
             put("app", "دفتر الديون")
             put("updatedAt", System.currentTimeMillis())
-            put("debts", JSONArray().apply {
-                debts.forEach { debt ->
-                    put(JSONObject().apply {
-                        put("id", debt.id)
-                        put("person", debt.person)
-                        put("amount", debt.amount)
-                        put("debtDate", debt.debtDate)
-                        put("paidDate", debt.paidDate)
-                        put("note", debt.note)
-                        put("paidAmount", debt.paidAmount)
-                        put("payments", JSONArray().apply { debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) } })
-                    })
-                }
-            })
+            put("debts", JSONArray(debtsToJson(debts)))
         }
-        resolver.openOutputStream(uri, "wt")?.use { it.write(root.toString(2).toByteArray(Charsets.UTF_8)) }
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
-    } catch (_: Exception) { }
+        resolver.openOutputStream(uri, "w")?.use {
+            it.write(root.toString(2).toByteArray(Charsets.UTF_8))
+            it.flush()
+        } ?: run {
+            resolver.delete(uri, null, null)
+            return
+        }
+        resolver.update(uri, ContentValues().apply {
+            put(MediaStore.Downloads.IS_PENDING, 0)
+        }, null, null)
+    } catch (_: Exception) {
+        // External backup must never interfere with the primary internal ledger.
+    }
 }
 
 private fun findBackupUri(activity: MainActivity): Uri? {
