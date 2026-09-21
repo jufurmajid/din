@@ -112,7 +112,7 @@ fun DebtBookApp() {
             }
         }
     }
-    LaunchedEffect(Unit) { loaded = true; delay(1800); showSplash = false }
+    LaunchedEffect(Unit) { loaded = true; delay(2200); showSplash = false }
     LaunchedEffect(debts, loaded) {
         if (loaded) {
             activity.latestDebts = debts
@@ -120,12 +120,12 @@ fun DebtBookApp() {
         }
     }
     if (showSplash) {
-        Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().background(Color(0xFFFFC4D7)), contentAlignment = Alignment.Center) {
             Image(
                 painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
                 contentDescription = "شاشة البداية",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                modifier = Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()),
+                contentScale = ContentScale.Fit
             )
         }
         return
