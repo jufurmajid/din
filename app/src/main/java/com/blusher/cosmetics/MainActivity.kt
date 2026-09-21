@@ -91,10 +91,10 @@ fun DebtBookApp() {
     val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
-                context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(debtsToJson(debts)) }
-                Toast.makeText(context, "تم حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+                activity.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(debtsToJson(debts)) }
+                Toast.makeText(activity, "تم حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
             } catch (_: Exception) {
-                Toast.makeText(context, "تعذر حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "تعذر حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
             }
         }
     }
