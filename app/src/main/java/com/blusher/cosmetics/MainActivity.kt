@@ -132,16 +132,30 @@ fun DebtBookApp() {
         }
     }
     if (showSplash) {
+        val splashBitmap = remember {
+            runCatching {
+                BitmapFactory.decodeResource(activity.resources, com.blusher.cosmetics.R.drawable.splash_reference)
+                    ?.asImageBitmap()
+            }.getOrNull()
+        }
         Box(
             Modifier.fillMaxSize().background(Color(0xFFFFC4D7)),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
-                contentDescription = "شاشة البداية",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
+            if (splashBitmap != null) {
+                Image(
+                    bitmap = splashBitmap,
+                    contentDescription = "شاشة البداية",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("دفتر الديون", color = Color(0xFF8B2147), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                    Spacer(Modifier.height(16.dp))
+                    CircularProgressIndicator(color = Color(0xFFC00060))
+                }
+            }
             LinearProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
