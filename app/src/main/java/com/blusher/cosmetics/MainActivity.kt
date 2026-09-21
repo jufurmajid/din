@@ -262,50 +262,54 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
 fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double, String) -> Unit, onDelete: () -> Unit) {
     var paymentText by remember(debt.id) { mutableStateOf("") }
     var paymentDate by remember(debt.id) { mutableStateOf(today()) }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
-            Text("تفاصيل الدين", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("تفاصيل الزبون", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            IconButton(onClick = { exportSingleDebt(activity, debt) }) { Icon(Icons.Default.Share, "مشاركة", tint = Pink) }
         }
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 12.dp)
-        ) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
             item {
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.padding(18.dp)) {
-                        Text(debt.person, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                        Text("الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount) + "  •  " + debt.debtDate, color = Color.Gray)
-                        Spacer(Modifier.height(12.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column { Text("المسدد", color = Color.Gray); Text(String.format(Locale.US, "%.0f د.ع", debt.paidAmount), color = Color(0xFF4C8A63), fontWeight = FontWeight.Bold) }
-                            Column(horizontalAlignment = Alignment.End) { Text("المتبقي", color = Color.Gray); Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), color = Color(0xFF8E4A63), fontWeight = FontWeight.Bold) }
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.AccountCircle, null, tint = Pink, modifier = Modifier.size(82.dp))
+                        Text(debt.person, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                        if (debt.phone.isNotBlank()) Text(debt.phone, color = Color.Gray)
+                        if (debt.location.isNotBlank()) Text(debt.location, color = Color.Gray)
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CustomerAmountCard("إجمالي الدين", debt.amount, Pink, Modifier.weight(1f))
+                            CustomerAmountCard("المسدد", debt.paidAmount, Green, Modifier.weight(1f))
+                            CustomerAmountCard("المتبقي", remaining(debt), Color(0xFFE64A5F), Modifier.weight(1f))
                         }
-                        if (debt.note.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text("ملاحظة: " + debt.note) }
-                    }
-                }
-            }
-            if (debt.payments.isNotEmpty()) {
-                item { Text("سجل التسديدات", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                items(debt.payments.indices.toList()) { index ->
-                    val p = debt.payments[index]
-                    val paidUntilHere = debt.payments.take(index + 1).sumOf { it.amount }
-                    val after = (debt.amount - paidUntilHere).coerceAtLeast(0.0)
-                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text("تم تسديد " + String.format(Locale.US, "%.0f د.ع", p.amount), color = Color(0xFF4C8A63), fontWeight = FontWeight.Bold)
-                            Text("التاريخ: " + p.date, color = Color.Gray)
-                            if (after > 0) Text("الباقي " + String.format(Locale.US, "%.0f د.ع", after), fontWeight = FontWeight.Bold)
-                            else Text("تم التسديد بالكامل", color = Color(0xFF4C8A63), fontWeight = FontWeight.Bold)
+                        if (debt.note.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("ملاحظة: " + debt.note, modifier = Modifier.fillMaxWidth(), color = Color.DarkGray)
                         }
                     }
                 }
             }
             item {
-                Button(onClick = { exportSingleDebt(activity, debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                    Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("تصدير التفاصيل كصورة")
+                Text("سجل المعاملات", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SoftPink)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("إضافة دين", color = Pink, fontWeight = FontWeight.Bold)
+                        Text(String.format(Locale.US, "%.0f د.ع", debt.amount), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(debt.debtDate, color = Color.Gray)
+                    }
+                }
+            }
+            items(debt.payments.indices.toList()) { index ->
+                val p = debt.payments[index]
+                val after = (debt.amount - debt.payments.take(index + 1).sumOf { it.amount }).coerceAtLeast(0.0)
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF8F1))) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("تسديد", color = Green, fontWeight = FontWeight.Bold)
+                        Text(String.format(Locale.US, "%.0f د.ع", p.amount), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("التاريخ: " + p.date, color = Color.Gray)
+                        Text(if (after > 0) "المتبقي: " + String.format(Locale.US, "%.0f د.ع", after) else "تم التسديد بالكامل", color = if (after > 0) Color.DarkGray else Green)
+                    }
                 }
             }
             if (remaining(debt) > 0) {
@@ -315,16 +319,33 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 item {
                     Button(onClick = {
                         val value = paymentText.toDoubleOrNull() ?: 0.0
-                        if (value > 0 && value <= remaining(debt)) {
-                            onPayment(value, paymentDate.ifBlank { today() })
-                            paymentText = ""
-                        } else Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
-                    }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حفظ التسديد") }
+                        if (value > 0 && value <= remaining(debt)) { onPayment(value, paymentDate.ifBlank { today() }); paymentText = "" }
+                        else Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
+                    }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                        Icon(Icons.Default.Payments, null); Spacer(Modifier.width(6.dp)); Text("حفظ التسديد")
+                    }
                 }
             }
             item {
-                OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حذف الدين") }
+                OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حذف الزبون والدين") }
             }
+        }
+    }
+    if (confirmDelete) {
+        AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("تأكيد الحذف") },
+            text = { Text("راح ينحذف الدين وكل سجل التسديدات لهذا الزبون. متأكد؟") },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("حذف", color = Color.Red) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } })
+    }
+}
+
+@Composable
+private fun CustomerAmountCard(title: String, amount: Double, color: Color, modifier: Modifier = Modifier) {
+    Card(modifier, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = if (color == Green) Color(0xFFEAF8F1) else SoftPink)) {
+        Column(Modifier.padding(vertical = 11.dp, horizontal = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, fontSize = 11.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            Text(String.format(Locale.US, "%.0f", amount), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color)
+            Text("د.ع", fontSize = 10.sp, color = Color.Gray)
         }
     }
 }
