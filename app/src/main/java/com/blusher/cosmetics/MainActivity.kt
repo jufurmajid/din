@@ -19,6 +19,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +47,9 @@ private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
 private const val BACKUP_FILE_NAME = "ديون احتياط.json"
+private val Pink = Color(0xFFE91E63)
+private val SoftPink = Color(0xFFFFE4EE)
+private val Green = Color(0xFF18A66A)
 
 class MainActivity : ComponentActivity() {
     var latestDebts: List<Debt> = emptyList()
@@ -136,58 +141,71 @@ fun DebtBookApp() {
 
 @Composable
 fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit) {
-    val total = debts.sumOf { remaining(it) }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("دفتر الديون", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Text("سجل ديونك ومدفوعاتك بسهولة", color = Color.Gray)
+    val totalOriginal = debts.sumOf { it.amount }
+    val totalPaid = debts.sumOf { it.paidAmount }
+    val totalRemaining = debts.sumOf { remaining(it) }
+    Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(horizontal = 14.dp)) {
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onImport) { Icon(Icons.Default.Menu, "النسخ الاحتياطي", tint = Pink) }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("دفتر الديون", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF8B2147))
+                Text("إدارة الديون والتسديدات", color = Color.Gray, fontSize = 13.sp)
             }
-            IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "إضافة دين") }
+            IconButton(onClick = onAdd) { Icon(Icons.Default.AddCircle, "إضافة", tint = Pink, modifier = Modifier.size(32.dp)) }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SummaryCard("إجمالي الديون", totalOriginal, Pink, Modifier.weight(1f))
+            SummaryCard("المتبقي", totalRemaining, Color(0xFFE64A5F), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SummaryCard("المبالغ المسددة", totalPaid, Green, Modifier.weight(1f))
+            SummaryCard("غير المسددين", debts.count { remaining(it) > 0 }.toDouble(), Color(0xFFB44B76), Modifier.weight(1f), false)
         }
         Spacer(Modifier.height(16.dp))
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF2DCE4))) {
-            Column(Modifier.padding(20.dp)) {
-                Text("إجمالي الديون المتبقية", color = Color.DarkGray)
-                Text(String.format(Locale.US, "%.0f د.ع", total), fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("${debts.count { remaining(it) > 0 }} دين غير مسدد")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("أحدث الديون", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { exportAllDebts(activity, debts) }) { Text("تصدير الكل", color = Pink) }
+        }
+        if (debts.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("ماكو ديون مسجلة حالياً", color = Color.Gray) }
+        } else {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                items(debts.reversed(), key = { it.id }) { DebtCard(it, onOpen) }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = { exportAllDebts(activity, debts) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("تصدير كل الديون كصورة")
+        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
+            Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("إضافة دين جديد", fontWeight = FontWeight.Bold)
         }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.FolderOpen, null); Spacer(Modifier.width(6.dp)); Text("استعادة نسخة من ملف الجهاز")
-        }
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("إضافة دين جديد")
-        }
-        Spacer(Modifier.height(16.dp))
-        Text("سجل الديون", fontSize = 21.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        if (debts.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("ماكو ديون مسجلة حالياً", color = Color.Gray) }
-        else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(debts.reversed(), key = { it.id }) { debt -> DebtCard(debt, onOpen) }
+    }
+}
+
+@Composable
+private fun SummaryCard(title: String, value: Double, accent: Color, modifier: Modifier = Modifier, money: Boolean = true) {
+    Card(modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = if (accent == Green) Color(0xFFE5F7EF) else SoftPink)) {
+        Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, color = Color.DarkGray, fontSize = 13.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(5.dp))
+            Text(if (money) String.format(Locale.US, "%.0f د.ع", value) else String.format(Locale.US, "%.0f", value), color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
         }
     }
 }
 
 @Composable
 fun DebtCard(debt: Debt, onOpen: (Debt) -> Unit) {
-    Card(onClick = { onOpen(debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+    Card(onClick = { onOpen(debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (debt.paidDate.isEmpty()) Icons.Default.Person else Icons.Default.CheckCircle, null,
-                tint = if (debt.paidDate.isEmpty()) Color(0xFF8E4A63) else Color(0xFF4C8A63), modifier = Modifier.size(38.dp))
+                tint = if (debt.paidDate.isEmpty()) Pink else Green, modifier = Modifier.size(38.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(debt.person, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("تاريخ الدين: ${debt.debtDate}", color = Color.Gray)
                 if (debt.paidDate.isNotEmpty()) Text("تم التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
             }
-            Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontWeight = FontWeight.Bold, color = Color(0xFF8E4A63))
+            Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontWeight = FontWeight.Bold, color = if (remaining(debt) > 0) Pink else Green)
         }
     }
 }
