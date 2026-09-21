@@ -46,6 +46,7 @@ private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coer
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
+private const val PREFS_KEY_PREVIOUS = "debts_json_previous"
 private const val BACKUP_FILE_NAME = "ديون احتياط.json"
 private const val PREFS_BACKUP_HASH = "last_external_backup_hash"
 private val Pink = Color(0xFFE91E63)
@@ -485,35 +486,64 @@ private fun debtsToJson(debts: List<Debt>): String {
     }.toString()
 }
 
-private fun loadLocalDebts(context: Context): List<Debt> {
-    return try {
-        val text = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREFS_KEY, null) ?: return emptyList()
-        val array = JSONArray(text)
-        List(array.length()) { i ->
-            val o = array.getJSONObject(i)
-            Debt(
-                o.optLong("id", System.currentTimeMillis() + i), o.optString("person"), o.optDouble("amount", 0.0),
-                o.optString("debtDate"), o.optString("paidDate"), o.optString("note"),
-                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
-                buildList {
-                    val ps = o.optJSONArray("payments")
-                    if (ps != null) for (j in 0 until ps.length()) {
-                        val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
-                    }
-                }, o.optString("phone"), o.optString("location"), o.optString("photoUri")
-            )
-        }
-    } catch (_: Exception) { emptyList() }
+private fun parseDebtsArray(text: String): List<Debt> {
+    val array = JSONArray(text)
+    return List(array.length()) { i ->
+        val o = array.getJSONObject(i)
+        Debt(
+            o.optLong("id", System.currentTimeMillis() + i), o.optString("person"), o.optDouble("amount", 0.0),
+            o.optString("debtDate"), o.optString("paidDate"), o.optString("note"),
+            o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
+            buildList {
+                val ps = o.optJSONArray("payments")
+                if (ps != null) for (j in 0 until ps.length()) {
+                    val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
+                }
+            }, o.optString("phone"), o.optString("location"), o.optString("photoUri")
+        )
+    }
 }
 
-private fun saveLocalDebts(context: Context, debts: List<Debt>) {
+private fun loadLocalDebts(context: Context): List<Debt> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val primary = prefs.getString(PREFS_KEY, null)
+    if (primary != null) try { return parseDebtsArray(primary) } catch (_: Exception) { }
+    val previous = prefs.getString(PREFS_KEY_PREVIOUS, null)
+    if (previous != null) try { return parseDebtsArray(previous) } catch (_: Exception) { }
+    return emptyList()
+}
+
+private fun saveLocalDebts(context: Context, debts: List<Debt>): Boolean {
+    return try {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val next = debtsToJson(debts)
+        val current = prefs.getString(PREFS_KEY, null)
+        val editor = prefs.edit()
+        if (current != null && current != next) {
+            try { parseDebtsArray(current); editor.putString(PREFS_KEY_PREVIOUS, current) } catch (_: Exception) { }
+        }
+        editor.putString(PREFS_KEY, next).commit()
+    } catch (_: Exception) { false }
+}
+
+private fun saveAppExternalBackup(activity: MainActivity, debts: List<Debt>) {
     try {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, debtsToJson(debts)).commit()
+        val dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: return
+        if (!dir.exists()) dir.mkdirs()
+        val target = java.io.File(dir, BACKUP_FILE_NAME)
+        val temp = java.io.File(dir, BACKUP_FILE_NAME + ".tmp")
+        val root = JSONObject().apply {
+            put("version", 3); put("app", "دفتر الديون"); put("updatedAt", System.currentTimeMillis())
+            put("debts", JSONArray(debtsToJson(debts)))
+        }
+        temp.writeText(root.toString(2), Charsets.UTF_8)
+        if (target.exists()) target.delete()
+        temp.renameTo(target)
     } catch (_: Exception) { }
 }
 
-
 private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
+    saveAppExternalBackup(activity, debts)
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
     try {
         val dataJson = debtsToJson(debts)
@@ -551,62 +581,13 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
     }
 }
 
-private fun findBackupUri(activity: MainActivity): Uri? {
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return null
-    val projection = arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME)
-    activity.contentResolver.query(
-        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-        projection,
-        "\${MediaStore.Downloads.DISPLAY_NAME}=?",
-        arrayOf(BACKUP_FILE_NAME),
-        null
-    )?.use { cursor ->
-        if (cursor.moveToFirst()) {
-            return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(0))
-        }
-    }
-    return null
-}
-
-private fun loadBackup(activity: MainActivity): List<Debt> {
-    val uri = findBackupUri(activity) ?: return emptyList()
-    return try {
-        val text = activity.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: return emptyList()
-        val array = JSONObject(text).optJSONArray("debts") ?: return emptyList()
-        List(array.length()) { i ->
-            val o = array.getJSONObject(i)
-            Debt(
-                o.optLong("id", System.currentTimeMillis() + i),
-                o.optString("person"),
-                o.optDouble("amount", 0.0),
-                o.optString("debtDate"),
-                o.optString("paidDate"),
-                o.optString("note"),
-                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
-                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } },
-                o.optString("phone"), o.optString("location"), o.optString("photoUri")
-            )
-        }
-    } catch (_: Exception) { emptyList() }
-}
-
 private fun importDebtsFromUri(activity: MainActivity, uri: Uri): List<Debt>? {
     return try {
         val text = activity.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: return null
-        val array = JSONObject(text).optJSONArray("debts") ?: return null
-        List(array.length()) { i ->
-            val o = array.getJSONObject(i)
-            Debt(
-                o.optLong("id", System.currentTimeMillis() + i),
-                o.optString("person"),
-                o.optDouble("amount", 0.0),
-                o.optString("debtDate"),
-                o.optString("paidDate"),
-                o.optString("note"),
-                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
-                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } },
-                o.optString("phone"), o.optString("location"), o.optString("photoUri")
-            )
-        }
+        val root = JSONObject(text)
+        val array = root.optJSONArray("debts") ?: return null
+        val parsed = parseDebtsArray(array.toString())
+        if (parsed.any { it.person.isBlank() || it.amount < 0.0 || it.paidAmount < 0.0 || it.paidAmount > it.amount }) return null
+        parsed
     } catch (_: Exception) { null }
 }
