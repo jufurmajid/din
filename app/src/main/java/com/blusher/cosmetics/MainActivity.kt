@@ -47,6 +47,7 @@ private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
 private const val BACKUP_FILE_NAME = "ديون احتياط.json"
+private const val PREFS_BACKUP_HASH = "last_external_backup_hash"
 private val Pink = Color(0xFFE91E63)
 private val SoftPink = Color(0xFFFFE4EE)
 private val Green = Color(0xFF18A66A)
@@ -474,6 +475,11 @@ private fun saveLocalDebts(context: Context, debts: List<Debt>) {
 private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
     try {
+        val dataJson = debtsToJson(debts)
+        val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val dataHash = dataJson.hashCode().toString()
+        if (prefs.getString(PREFS_BACKUP_HASH, null) == dataHash) return
+
         val resolver = activity.contentResolver
         val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
@@ -486,7 +492,7 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
             put("version", 2)
             put("app", "دفتر الديون")
             put("updatedAt", System.currentTimeMillis())
-            put("debts", JSONArray(debtsToJson(debts)))
+            put("debts", JSONArray(dataJson))
         }
         resolver.openOutputStream(uri, "w")?.use {
             it.write(root.toString(2).toByteArray(Charsets.UTF_8))
@@ -498,6 +504,7 @@ private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
         resolver.update(uri, ContentValues().apply {
             put(MediaStore.Downloads.IS_PENDING, 0)
         }, null, null)
+        prefs.edit().putString(PREFS_BACKUP_HASH, dataHash).commit()
     } catch (_: Exception) {
         // External backup must never interfere with the primary internal ledger.
     }
