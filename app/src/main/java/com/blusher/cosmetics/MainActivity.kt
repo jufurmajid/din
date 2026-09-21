@@ -132,12 +132,24 @@ fun DebtBookApp() {
         }
     }
     if (showSplash) {
-        Box(Modifier.fillMaxSize().background(Color(0xFFFFC4D7)), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xFFFFC4D7)),
+            contentAlignment = Alignment.Center
+        ) {
             Image(
                 painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
                 contentDescription = "شاشة البداية",
-                modifier = Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit
+            )
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 22.dp)
+                    .width(112.dp)
+                    .height(3.dp),
+                color = Color(0xFFC00060),
+                trackColor = Color(0x33FFFFFF)
             )
         }
         return
@@ -364,12 +376,37 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 }
             }
             item {
-                Text("سجل المعاملات", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SoftPink)) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("إضافة دين", color = Pink, fontWeight = FontWeight.Bold)
-                        Text(String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text(debt.debtDate, color = Color.Gray)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("سجل المعاملات", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("مرتبة حسب تسلسل الإدخال", fontSize = 12.sp, color = Color.Gray)
+                    }
+                    Surface(shape = RoundedCornerShape(50), color = SoftPink) {
+                        Text(
+                            (orderedTransactions(debt).size + 1).toString() + " عملية",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            color = Pink,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Card(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = RoundedCornerShape(50), color = SoftPink) {
+                            Text("1", modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Pink, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("الدين الأصلي", color = Pink, fontWeight = FontWeight.Bold)
+                            Text(String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("التاريخ: " + debt.debtDate, color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Text("البداية", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
             }
@@ -381,47 +418,88 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 val paidSoFar = throughNow.filter { it.type == "payment" }.sumOf { it.amount }
                 val after = (initialDebtAmount(debt) + addedSoFar - paidSoFar).coerceAtLeast(0.0)
                 val isAddition = tx.type == "addition"
+                val accent = if (isAddition) Pink else Green
+                val cardBg = if (isAddition) Color(0xFFFFF0F5) else Color(0xFFF0FAF5)
                 Card(
                     Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isAddition) SoftPink else Color(0xFFEAF8F1))
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(if (isAddition) "إضافة دين" else "تسديد", color = if (isAddition) Pink else Green, fontWeight = FontWeight.Bold)
-                        Text(String.format(Locale.US, "%.0f د.ع", tx.amount), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text("التاريخ: " + tx.date, color = Color.Gray)
-                        Text("المتبقي بعد العملية: " + String.format(Locale.US, "%.0f د.ع", after), color = Color.DarkGray)
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = RoundedCornerShape(50), color = cardBg) {
+                            Text(
+                                (index + 2).toString(),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                color = accent,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (isAddition) Icons.Default.AddCircle else Icons.Default.Payments,
+                                    null,
+                                    tint = accent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (isAddition) "إضافة دين" else "تسديد", color = accent, fontWeight = FontWeight.Bold)
+                            }
+                            Text(String.format(Locale.US, "%.0f د.ع", tx.amount), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("التاريخ: " + tx.date, color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("المتبقي", color = Color.Gray, fontSize = 11.sp)
+                            Text(String.format(Locale.US, "%.0f د.ع", after), color = Color(0xFF7A263F), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
                     }
                 }
             }
             if (remaining(debt) > 0) {
-                item { Text("تسجيل تسديد جديد", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                item { OutlinedTextField(paymentText, { paymentText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ التسديد (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
-                item { OutlinedTextField(paymentDate, { paymentDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ التسديد") }, singleLine = true) }
                 item {
-                    Button(onClick = {
-                        val value = paymentText.toDoubleOrNull() ?: 0.0
-                        if (value > 0 && value <= remaining(debt)) { onPayment(value, paymentDate.ifBlank { today() }); paymentText = "" }
-                        else Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
-                    }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
-                        Icon(Icons.Default.Payments, null); Spacer(Modifier.width(6.dp)); Text("حفظ التسديد")
+                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF2FBF7))) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Payments, null, tint = Green)
+                                Spacer(Modifier.width(8.dp))
+                                Text("تسديد الدين", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Green)
+                            }
+                            OutlinedTextField(paymentText, { paymentText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ التسديد (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                            OutlinedTextField(paymentDate, { paymentDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ التسديد") }, singleLine = true)
+                            Button(onClick = {
+                                val value = paymentText.toDoubleOrNull() ?: 0.0
+                                if (value > 0 && value <= remaining(debt)) { onPayment(value, paymentDate.ifBlank { today() }); paymentText = "" }
+                                else Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
+                            }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                                Icon(Icons.Default.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("تأكيد التسديد", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
-            item { Text("إضافة دين جديد", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Pink) }
-            item { OutlinedTextField(newDebtText, { newDebtText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين الإضافي (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
-            item { OutlinedTextField(newDebtDate, { newDebtDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ إضافة الدين") }, singleLine = true) }
             item {
-                Button(onClick = {
-                    val value = newDebtText.toDoubleOrNull() ?: 0.0
-                    if (value > 0) {
-                        onAddDebt(value, newDebtDate.ifBlank { today() })
-                        newDebtText = ""
-                    } else {
-                        Toast.makeText(activity, "أدخل مبلغ دين صحيح", Toast.LENGTH_SHORT).show()
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3F7))) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AddCircle, null, tint = Pink)
+                            Spacer(Modifier.width(8.dp))
+                            Text("إضافة دين", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Pink)
+                        }
+                        OutlinedTextField(newDebtText, { newDebtText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين الإضافي (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(newDebtDate, { newDebtDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ إضافة الدين") }, singleLine = true)
+                        Button(onClick = {
+                            val value = newDebtText.toDoubleOrNull() ?: 0.0
+                            if (value > 0) {
+                                onAddDebt(value, newDebtDate.ifBlank { today() })
+                                newDebtText = ""
+                            } else {
+                                Toast.makeText(activity, "أدخل مبلغ دين صحيح", Toast.LENGTH_SHORT).show()
+                            }
+                        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
+                            Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("تأكيد إضافة الدين", fontWeight = FontWeight.Bold)
+                        }
                     }
-                }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
-                    Icon(Icons.Default.AddCircle, null); Spacer(Modifier.width(6.dp)); Text("حفظ الدين الإضافي")
                 }
             }
             item {
@@ -489,14 +567,14 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
 
     var runningDebt = initialDebtAmount(debt)
     var runningPaid = 0.0
-    log.forEach { tx ->
+    log.forEachIndexed { index, tx ->
         val isAddition = tx.type == "addition"
         if (isAddition) runningDebt += tx.amount else runningPaid += tx.amount
         val balance = (runningDebt - runningPaid).coerceAtLeast(0.0)
         paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
         paint.color = if (isAddition) android.graphics.Color.rgb(190, 35, 95) else android.graphics.Color.rgb(30, 145, 90)
         canvas.drawText(
-            (if (isAddition) "إضافة دين: " else "تسديد: ") + String.format(Locale.US, "%.0f د.ع", tx.amount),
+            (index + 1).toString() + " - " + (if (isAddition) "إضافة دين: " else "تسديد: ") + String.format(Locale.US, "%.0f د.ع", tx.amount),
             980f, y, paint
         )
         paint.typeface = android.graphics.Typeface.DEFAULT
