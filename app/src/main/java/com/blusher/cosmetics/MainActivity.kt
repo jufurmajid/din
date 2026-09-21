@@ -88,6 +88,16 @@ fun DebtBookApp() {
     val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
     var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
+    val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(debtsToJson(debts)) }
+                Toast.makeText(context, "تم حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                Toast.makeText(context, "تعذر حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val imported = importDebtsFromUri(activity, uri)
@@ -141,21 +151,28 @@ fun DebtBookApp() {
                         selected = null
                     }
                 )
-                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, activity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) })
+                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, activity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) }, { exportBackupLauncher.launch("ديون احتياط.json") })
             }
         }
     }
 }
 
 @Composable
-fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit) {
+fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit, onExportBackup: () -> Unit) {
     val totalOriginal = debts.sumOf { it.amount }
     val totalPaid = debts.sumOf { it.paidAmount }
     val totalRemaining = debts.sumOf { remaining(it) }
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onImport) { Icon(Icons.Default.Menu, "النسخ الاحتياطي", tint = Pink) }
+            var backupMenu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { backupMenu = true }) { Icon(Icons.Default.Menu, "النسخ الاحتياطي", tint = Pink) }
+                DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
+                    DropdownMenuItem(text = { Text("حفظ نسخة احتياطية") }, onClick = { backupMenu = false; onExportBackup() })
+                    DropdownMenuItem(text = { Text("استيراد نسخة احتياطية") }, onClick = { backupMenu = false; onImport() })
+                }
+            }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("دفتر الديون", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF8B2147))
                 Text("إدارة الديون والتسديدات", color = Color.Gray, fontSize = 13.sp)
