@@ -49,8 +49,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class Payment(val amount: Double, val date: String)
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "", val photoData: String = "")
+data class DebtAddition(val amount: Double, val date: String)
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "", val photoData: String = "", val additions: List<DebtAddition> = emptyList())
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
+private fun initialDebtAmount(debt: Debt): Double = (debt.amount - debt.additions.sumOf { it.amount }).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
@@ -162,6 +164,16 @@ fun DebtBookApp() {
                             paidAmount = newPaid,
                             paidDate = if (newPaid >= current.amount) paymentDate else "",
                             payments = current.payments + Payment(payment, paymentDate)
+                        )
+                        debts = debts.map { if (it.id == current.id) updated else it }
+                        selected = updated
+                    },
+                    onAddDebt = { extraDebt, extraDebtDate ->
+                        val current = selected!!
+                        val updated = current.copy(
+                            amount = current.amount + extraDebt,
+                            paidDate = "",
+                            additions = current.additions + DebtAddition(extraDebt, extraDebtDate)
                         )
                         debts = debts.map { if (it.id == current.id) updated else it }
                         selected = updated
@@ -306,9 +318,11 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double, String) -> Unit, onDelete: () -> Unit) {
+fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double, String) -> Unit, onAddDebt: (Double, String) -> Unit, onDelete: () -> Unit) {
     var paymentText by remember(debt.id) { mutableStateOf("") }
     var paymentDate by remember(debt.id) { mutableStateOf(today()) }
+    var newDebtText by remember(debt.id) { mutableStateOf("") }
+    var newDebtDate by remember(debt.id) { mutableStateOf(today()) }
     var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -347,8 +361,18 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SoftPink)) {
                     Column(Modifier.padding(14.dp)) {
                         Text("إضافة دين", color = Pink, fontWeight = FontWeight.Bold)
-                        Text(String.format(Locale.US, "%.0f د.ع", debt.amount), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text(String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)), fontSize = 19.sp, fontWeight = FontWeight.Bold)
                         Text(debt.debtDate, color = Color.Gray)
+                    }
+                }
+            }
+            items(debt.additions.indices.toList()) { index ->
+                val addition = debt.additions[index]
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SoftPink)) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text("إضافة دين", color = Pink, fontWeight = FontWeight.Bold)
+                        Text(String.format(Locale.US, "%.0f د.ع", addition.amount), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("التاريخ: " + addition.date, color = Color.Gray)
                     }
                 }
             }
@@ -376,6 +400,22 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                     }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
                         Icon(Icons.Default.Payments, null); Spacer(Modifier.width(6.dp)); Text("حفظ التسديد")
                     }
+                }
+            }
+            item { Text("إضافة دين جديد", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Pink) }
+            item { OutlinedTextField(newDebtText, { newDebtText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين الإضافي") }, singleLine = true) }
+            item { OutlinedTextField(newDebtDate, { newDebtDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ إضافة الدين") }, singleLine = true) }
+            item {
+                Button(onClick = {
+                    val value = newDebtText.toDoubleOrNull() ?: 0.0
+                    if (value > 0) {
+                        onAddDebt(value, newDebtDate.ifBlank { today() })
+                        newDebtText = ""
+                    } else {
+                        Toast.makeText(activity, "أدخل مبلغ دين صحيح", Toast.LENGTH_SHORT).show()
+                    }
+                }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
+                    Icon(Icons.Default.AddCircle, null); Spacer(Modifier.width(6.dp)); Text("إضافة الدين فوق الدين الحالي")
                 }
             }
             item {
@@ -420,7 +460,7 @@ private fun shareBitmap(activity: MainActivity, bitmap: Bitmap, fileName: String
 
 private fun makeDebtBitmap(debt: Debt): Bitmap {
     val width = 1080
-    val height = 760 + debt.payments.size * 150
+    val height = 830 + debt.payments.size * 150 + debt.additions.size * 125
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     canvas.drawColor(android.graphics.Color.WHITE)
@@ -437,7 +477,15 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
     canvas.drawText(debt.person, 980f, y, paint)
     y += 80
     paint.textSize = 40f
-    canvas.drawText("الدين " + String.format(Locale.US, "%.0f د.ع", debt.amount) + "  " + debt.debtDate, 980f, y, paint)
+    canvas.drawText("الدين الأصلي " + String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)) + "  " + debt.debtDate, 980f, y, paint)
+    y += 75
+    debt.additions.forEach { addition ->
+        paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        canvas.drawText("إضافة دين " + String.format(Locale.US, "%.0f د.ع", addition.amount) + "  " + addition.date, 980f, y, paint)
+        y += 65
+    }
+    paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    canvas.drawText("إجمالي الدين " + String.format(Locale.US, "%.0f د.ع", debt.amount), 980f, y, paint)
     y += 75
     paint.typeface = android.graphics.Typeface.DEFAULT
     if (debt.note.isNotBlank()) {
@@ -549,6 +597,9 @@ private fun debtsToJson(debts: List<Debt>): String {
                 put("payments", JSONArray().apply {
                     debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) }
                 })
+                put("additions", JSONArray().apply {
+                    debt.additions.forEach { a -> put(JSONObject().apply { put("amount", a.amount); put("date", a.date) }) }
+                })
             })
         }
     }.toString()
@@ -567,7 +618,13 @@ private fun parseDebtsArray(text: String): List<Debt> {
                 if (ps != null) for (j in 0 until ps.length()) {
                     val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
                 }
-            }, o.optString("phone"), o.optString("location"), o.optString("photoUri"), o.optString("photoData")
+            }, o.optString("phone"), o.optString("location"), o.optString("photoUri"), o.optString("photoData"),
+            buildList {
+                val additions = o.optJSONArray("additions")
+                if (additions != null) for (j in 0 until additions.length()) {
+                    val a = additions.getJSONObject(j); add(DebtAddition(a.optDouble("amount", 0.0), a.optString("date")))
+                }
+            }
         )
     }
 }
