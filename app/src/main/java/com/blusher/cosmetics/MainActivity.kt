@@ -1,6 +1,7 @@
 package com.blusher.cosmetics
 
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -43,11 +44,29 @@ private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coer
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
+private const val BACKUP_FILE_NAME = "ديون احتياط.json"
 
 class MainActivity : ComponentActivity() {
+    var latestDebts: List<Debt> = emptyList()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        latestDebts = loadLocalDebts(this)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                saveLocalDebts(this@MainActivity, latestDebts)
+                saveBackup(this@MainActivity, latestDebts)
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        })
         setContent { DebtBookApp() }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        saveLocalDebts(this, latestDebts)
+        saveBackup(this, latestDebts)
     }
 }
 
@@ -69,7 +88,10 @@ fun DebtBookApp() {
     }
     LaunchedEffect(Unit) { loaded = true }
     LaunchedEffect(debts, loaded) {
-        if (loaded) saveLocalDebts(activity, debts)
+        if (loaded) {
+            activity.latestDebts = debts
+            saveLocalDebts(activity, debts)
+        }
     }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
@@ -411,7 +433,6 @@ private fun saveLocalDebts(context: Context, debts: List<Debt>) {
     } catch (_: Exception) { }
 }
 
-private const val BACKUP_FILE_NAME = "debt_book_backup.json"
 
 private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
