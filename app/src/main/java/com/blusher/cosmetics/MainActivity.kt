@@ -91,6 +91,8 @@ fun DebtBookApp() {
     var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
     var showSplash by remember { mutableStateOf(true) }
+    val splashTransition = rememberInfiniteTransition(label = "splash")
+    val splashAlpha by splashTransition.animateFloat(initialValue = 0.94f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "splashAlpha")
     val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -112,7 +114,7 @@ fun DebtBookApp() {
             }
         }
     }
-    LaunchedEffect(Unit) { loaded = true; delay(2200); showSplash = false }
+    LaunchedEffect(Unit) { loaded = true; delay(2400); showSplash = false }
     LaunchedEffect(debts, loaded) {
         if (loaded) {
             activity.latestDebts = debts
@@ -124,8 +126,8 @@ fun DebtBookApp() {
             Image(
                 painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
                 contentDescription = "شاشة البداية",
-                modifier = Modifier.fillMaxSize().padding(WindowInsets.systemBars.asPaddingValues()),
-                contentScale = ContentScale.Fit
+                modifier = Modifier.fillMaxSize().alpha(splashAlpha),
+                contentScale = ContentScale.Crop
             )
         }
         return
