@@ -1,10 +1,4 @@
 package com.blusher.cosmetics
-import androidx.compose.ui.draw.alpha
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.RepeatMode
 
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
@@ -97,8 +91,6 @@ fun DebtBookApp() {
     var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
     var showSplash by remember { mutableStateOf(true) }
-    val splashTransition = rememberInfiniteTransition(label = "splash")
-    val splashAlpha by splashTransition.animateFloat(initialValue = 0.94f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse), label = "splashAlpha")
     val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -132,8 +124,13 @@ fun DebtBookApp() {
             Image(
                 painter = painterResource(id = com.blusher.cosmetics.R.drawable.splash_reference),
                 contentDescription = "شاشة البداية",
-                modifier = Modifier.fillMaxSize().alpha(splashAlpha),
-                contentScale = ContentScale.Crop
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+            LinearProgressIndicator(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).width(110.dp).height(3.dp),
+                color = Color(0xFFC00060),
+                trackColor = Color.Transparent
             )
         }
         return
