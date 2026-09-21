@@ -2,6 +2,7 @@ package com.blusher.cosmetics
 
 import android.os.Bundle
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -40,6 +41,8 @@ data class Payment(val amount: Double, val date: String)
 data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList())
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
+private const val PREFS_NAME = "debt_book_local"
+private const val PREFS_KEY = "debts_json"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,7 +54,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DebtBookApp() {
     val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
-    var debts by remember { mutableStateOf(listOf<Debt>()) }
+    var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -64,12 +67,9 @@ fun DebtBookApp() {
             }
         }
     }
-    LaunchedEffect(Unit) {
-        // Start safely with an empty ledger. Backup access is done only when the user requests restore.
-        loaded = true
-    }
+    LaunchedEffect(Unit) { loaded = true }
     LaunchedEffect(debts, loaded) {
-        // Automatic MediaStore backup is temporarily disabled to prevent startup/device-specific crashes.
+        if (loaded) saveLocalDebts(activity, debts)
     }
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
@@ -367,6 +367,49 @@ private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
 }
 
 
+
+
+private fun debtsToJson(debts: List<Debt>): String {
+    return JSONArray().apply {
+        debts.forEach { debt ->
+            put(JSONObject().apply {
+                put("id", debt.id); put("person", debt.person); put("amount", debt.amount)
+                put("debtDate", debt.debtDate); put("paidDate", debt.paidDate); put("note", debt.note)
+                put("paidAmount", debt.paidAmount)
+                put("payments", JSONArray().apply {
+                    debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) }
+                })
+            })
+        }
+    }.toString()
+}
+
+private fun loadLocalDebts(context: Context): List<Debt> {
+    return try {
+        val text = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREFS_KEY, null) ?: return emptyList()
+        val array = JSONArray(text)
+        List(array.length()) { i ->
+            val o = array.getJSONObject(i)
+            Debt(
+                o.optLong("id", System.currentTimeMillis() + i), o.optString("person"), o.optDouble("amount", 0.0),
+                o.optString("debtDate"), o.optString("paidDate"), o.optString("note"),
+                o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
+                buildList {
+                    val ps = o.optJSONArray("payments")
+                    if (ps != null) for (j in 0 until ps.length()) {
+                        val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
+                    }
+                }
+            )
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun saveLocalDebts(context: Context, debts: List<Debt>) {
+    try {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREFS_KEY, debtsToJson(debts)).apply()
+    } catch (_: Exception) { }
+}
 
 private const val BACKUP_FILE_NAME = "debt_book_backup.json"
 
