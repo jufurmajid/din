@@ -41,7 +41,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class Payment(val amount: Double, val date: String)
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList())
+data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "")
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
@@ -109,8 +109,8 @@ fun DebtBookApp() {
             when {
                 showAdd -> AddDebtScreen(
                     onBack = { showAdd = false },
-                    onSave = { person, amount, date, note ->
-                        debts = debts + Debt(System.currentTimeMillis(), person, amount, date, note = note)
+                    onSave = { person, amount, date, note, phone, location, photoUri ->
+                        debts = debts + Debt(System.currentTimeMillis(), person, amount, date, note = note, phone = phone, location = location, photoUri = photoUri)
                         showAdd = false
                     }
                 )
@@ -212,29 +212,49 @@ fun DebtCard(debt: Debt, onOpen: (Debt) -> Unit) {
 }
 
 @Composable
-fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String) -> Unit) {
+fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, String, String, String) -> Unit) {
     var person by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(today()) }
-    var note by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    var photoUri by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) photoUri = uri.toString()
+    }
+    Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
-            Text("إضافة دين", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("إضافة زبون", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            Spacer(Modifier.width(48.dp))
         }
-        Spacer(Modifier.height(20.dp))
-        OutlinedTextField(person, { person = it }, Modifier.fillMaxWidth(), label = { Text("اسم الشخص") }, singleLine = true)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين") }, singleLine = true)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ الدين") }, singleLine = true)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("ملاحظة") }, minLines = 3)
-        Spacer(Modifier.weight(1f))
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+            item {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(86.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = SoftPink)) {
+                        Icon(if (photoUri.isBlank()) Icons.Default.CameraAlt else Icons.Default.CheckCircle, "إضافة صورة", tint = Pink, modifier = Modifier.size(38.dp))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(if (photoUri.isBlank()) "إضافة صورة (اختياري)" else "تم اختيار الصورة", color = if (photoUri.isBlank()) Color.Gray else Green)
+                }
+            }
+            item { OutlinedTextField(person, { person = it }, Modifier.fillMaxWidth(), label = { Text("اسم الزبون *") }, leadingIcon = { Icon(Icons.Default.Person, null) }, singleLine = true) }
+            item { OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text("رقم الهاتف") }, leadingIcon = { Icon(Icons.Default.Phone, null) }, singleLine = true) }
+            item { OutlinedTextField(location, { location = it }, Modifier.fillMaxWidth(), label = { Text("الموقع") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, singleLine = true) }
+            item { OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("ملاحظة") }, leadingIcon = { Icon(Icons.Default.EditNote, null) }, minLines = 3) }
+            item { HorizontalDivider(); Text("بيانات الدين", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Pink) }
+            item { OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين *") }, singleLine = true) }
+            item { OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ الدين") }, singleLine = true) }
+        }
         Button(onClick = {
             val value = amount.toDoubleOrNull() ?: 0.0
-            if (person.isNotBlank() && value > 0) onSave(person.trim(), value, date, note.trim())
-        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حفظ الدين") }
+            if (person.isNotBlank() && value > 0) onSave(person.trim(), value, date.ifBlank { today() }, note.trim(), phone.trim(), location.trim(), photoUri)
+            else Toast.makeText(context, "أدخل اسم الزبون ومبلغ الدين", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
+            Text("حفظ", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -435,7 +455,7 @@ private fun debtsToJson(debts: List<Debt>): String {
             put(JSONObject().apply {
                 put("id", debt.id); put("person", debt.person); put("amount", debt.amount)
                 put("debtDate", debt.debtDate); put("paidDate", debt.paidDate); put("note", debt.note)
-                put("paidAmount", debt.paidAmount)
+                put("paidAmount", debt.paidAmount); put("phone", debt.phone); put("location", debt.location); put("photoUri", debt.photoUri)
                 put("payments", JSONArray().apply {
                     debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) }
                 })
@@ -459,7 +479,7 @@ private fun loadLocalDebts(context: Context): List<Debt> {
                     if (ps != null) for (j in 0 until ps.length()) {
                         val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
                     }
-                }
+                }, o.optString("phone"), o.optString("location"), o.optString("photoUri")
             )
         }
     } catch (_: Exception) { emptyList() }
@@ -542,7 +562,8 @@ private fun loadBackup(activity: MainActivity): List<Debt> {
                 o.optString("paidDate"),
                 o.optString("note"),
                 o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
-                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } }
+                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } },
+                o.optString("phone"), o.optString("location"), o.optString("photoUri")
             )
         }
     } catch (_: Exception) { emptyList() }
@@ -562,7 +583,8 @@ private fun importDebtsFromUri(activity: MainActivity, uri: Uri): List<Debt>? {
                 o.optString("paidDate"),
                 o.optString("note"),
                 o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
-                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } }
+                buildList { val ps=o.optJSONArray("payments"); if(ps!=null) for(j in 0 until ps.length()){ val p=ps.getJSONObject(j); add(Payment(p.optDouble("amount",0.0),p.optString("date"))) } },
+                o.optString("phone"), o.optString("location"), o.optString("photoUri")
             )
         }
     } catch (_: Exception) { null }
