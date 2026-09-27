@@ -1,33 +1,28 @@
 package com.blusher.cosmetics
 
-import android.os.Bundle
-import androidx.activity.OnBackPressedCallback
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.BitmapFactory
-import android.util.Base64
-import java.io.ByteArrayOutputStream
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import kotlinx.coroutines.delay
-import android.provider.MediaStore
-import android.os.Environment
-import android.widget.Toast
 import android.net.Uri
-import android.content.ContentUris
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Base64
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,21 +34,41 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import org.json.JSONArray
-import org.json.JSONObject
 
 data class Payment(val amount: Double, val date: String)
 data class DebtAddition(val amount: Double, val date: String)
 data class DebtTransaction(val type: String, val amount: Double, val date: String)
-data class Debt(val id: Long, val person: String, val amount: Double, val debtDate: String, val paidDate: String = "", val note: String = "", val paidAmount: Double = 0.0, val payments: List<Payment> = emptyList(), val phone: String = "", val location: String = "", val photoUri: String = "", val photoData: String = "", val additions: List<DebtAddition> = emptyList(), val transactions: List<DebtTransaction> = emptyList())
+data class Debt(
+    val id: Long,
+    val person: String,
+    val amount: Double,
+    val debtDate: String,
+    val paidDate: String = "",
+    val note: String = "",
+    val paidAmount: Double = 0.0,
+    val payments: List<Payment> = emptyList(),
+    val phone: String = "",
+    val location: String = "",
+    val photoUri: String = "",
+    val photoData: String = "",
+    val additions: List<DebtAddition> = emptyList(),
+    val transactions: List<DebtTransaction> = emptyList()
+)
+
 private fun remaining(debt: Debt): Double = (debt.amount - debt.paidAmount).coerceAtLeast(0.0)
 private fun initialDebtAmount(debt: Debt): Double = (debt.amount - debt.additions.sumOf { it.amount }).coerceAtLeast(0.0)
 private fun orderedTransactions(debt: Debt): List<DebtTransaction> {
@@ -63,12 +78,12 @@ private fun orderedTransactions(debt: Debt): List<DebtTransaction> {
     debt.additions.forEach { legacy.add(DebtTransaction("addition", it.amount, it.date)) }
     return legacy.sortedBy { it.date }
 }
+
 private fun today(): String = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date())
 private const val PREFS_NAME = "debt_book_local"
 private const val PREFS_KEY = "debts_json"
 private const val PREFS_KEY_PREVIOUS = "debts_json_previous"
 private const val BACKUP_FILE_NAME = "ديون احتياط.json"
-private const val PREFS_BACKUP_HASH = "last_external_backup_hash"
 private val Pink = Color(0xFFE91E63)
 private val SoftPink = Color(0xFFFFE4EE)
 private val Green = Color(0xFF18A66A)
@@ -103,34 +118,35 @@ fun DebtBookApp() {
     var debts by remember { mutableStateOf(loadLocalDebts(activity)) }
     var loaded by remember { mutableStateOf(false) }
     var showSplash by remember { mutableStateOf(true) }
-    val exportBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) {
-            try {
-                activity.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { it.write(debtsToJson(debts)) }
-                Toast.makeText(activity, "تم حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
-            } catch (_: Exception) {
-                Toast.makeText(activity, "تعذر حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val imported = importDebtsFromUri(activity, uri)
             if (imported != null) {
                 debts = imported
+                activity.latestDebts = imported
+                saveLocalDebts(activity, imported)
+                saveBackup(activity, imported)
                 Toast.makeText(activity, "تم استيراد دفتر الديون بنجاح", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(activity, "تعذر قراءة ملف النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
             }
         }
     }
-    LaunchedEffect(Unit) { loaded = true; delay(2200); showSplash = false }
+
+    LaunchedEffect(Unit) {
+        loaded = true
+        delay(2200)
+        showSplash = false
+    }
+
     LaunchedEffect(debts, loaded) {
         if (loaded) {
             activity.latestDebts = debts
             saveLocalDebts(activity, debts)
         }
     }
+
     if (showSplash) {
         val splashBitmap = remember {
             runCatching {
@@ -157,11 +173,7 @@ fun DebtBookApp() {
                 }
             }
             LinearProgressIndicator(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 22.dp)
-                    .width(112.dp)
-                    .height(3.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp).width(112.dp).height(3.dp),
                 color = Color(0xFFC00060),
                 trackColor = Color(0x33FFFFFF)
             )
@@ -171,19 +183,37 @@ fun DebtBookApp() {
 
     var showAdd by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Debt?>(null) }
+
     BackHandler(enabled = showAdd || selected != null) {
         if (showAdd) showAdd = false else selected = null
     }
-    MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF8E4A63), secondary = Color(0xFFD79AAF), background = Color(0xFFFFF8FA))) {
+
+    MaterialTheme(
+        colorScheme = lightColorScheme(
+            primary = Color(0xFF8E4A63),
+            secondary = Color(0xFFD79AAF),
+            background = Color(0xFFFFF8FA)
+        )
+    ) {
         Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8FA)) {
             when {
                 showAdd -> AddDebtScreen(
                     onBack = { showAdd = false },
                     onSave = { person, amount, date, note, phone, location, photoData ->
-                        debts = debts + Debt(System.currentTimeMillis(), person, amount, date, note = note, phone = phone, location = location, photoData = photoData)
+                        debts = debts + Debt(
+                            System.currentTimeMillis(),
+                            person,
+                            amount,
+                            date,
+                            note = note,
+                            phone = phone,
+                            location = location,
+                            photoData = photoData
+                        )
                         showAdd = false
                     }
                 )
+
                 selected != null -> DebtDetailsScreen(
                     debt = selected!!,
                     activity = activity,
@@ -216,34 +246,82 @@ fun DebtBookApp() {
                         selected = null
                     }
                 )
-                else -> HomeScreen(debts, { showAdd = true }, { selected = it }, activity, { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) }, { exportBackupLauncher.launch("ديون احتياط.json") })
+
+                else -> HomeScreen(
+                    debts = debts,
+                    onAdd = { showAdd = true },
+                    onOpen = { selected = it },
+                    activity = activity,
+                    onImport = { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) },
+                    onSaveBackup = {
+                        if (debts.isEmpty()) {
+                            Toast.makeText(activity, "ماكو بيانات حتى تنحفظ", Toast.LENGTH_SHORT).show()
+                        } else if (saveBackup(activity, debts)) {
+                            Toast.makeText(activity, "تم تحديث ملف ديون احتياط", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(activity, "تعذر حفظ النسخة الاحتياطية", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, activity: MainActivity, onImport: () -> Unit, onExportBackup: () -> Unit) {
+fun HomeScreen(
+    debts: List<Debt>,
+    onAdd: () -> Unit,
+    onOpen: (Debt) -> Unit,
+    activity: MainActivity,
+    onImport: () -> Unit,
+    onSaveBackup: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val normalized = searchQuery.trim()
+    val shownDebts = remember(debts, normalized) {
+        if (normalized.isBlank()) debts
+        else debts.filter { debt ->
+            debt.person.contains(normalized, ignoreCase = true) ||
+                debt.phone.contains(normalized, ignoreCase = true) ||
+                debt.location.contains(normalized, ignoreCase = true) ||
+                debt.note.contains(normalized, ignoreCase = true) ||
+                debt.debtDate.contains(normalized, ignoreCase = true)
+        }
+    }
+
     val totalOriginal = debts.sumOf { it.amount }
     val totalPaid = debts.sumOf { it.paidAmount }
     val totalRemaining = debts.sumOf { remaining(it) }
+
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(horizontal = 14.dp)) {
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             var backupMenu by remember { mutableStateOf(false) }
             Box {
-                IconButton(onClick = { backupMenu = true }) { Icon(Icons.Default.Menu, "النسخ الاحتياطي", tint = Pink) }
+                IconButton(onClick = { backupMenu = true }) {
+                    Icon(Icons.Default.Menu, "النسخ الاحتياطي", tint = Pink)
+                }
                 DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                    DropdownMenuItem(text = { Text("حفظ نسخة احتياطية") }, onClick = { backupMenu = false; onExportBackup() })
-                    DropdownMenuItem(text = { Text("استيراد نسخة احتياطية") }, onClick = { backupMenu = false; onImport() })
+                    DropdownMenuItem(
+                        text = { Text("حفظ / تحديث النسخة الاحتياطية") },
+                        onClick = { backupMenu = false; onSaveBackup() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("استيراد نسخة احتياطية") },
+                        onClick = { backupMenu = false; onImport() }
+                    )
                 }
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("دفتر الديون", fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF8B2147))
                 Text("إدارة الديون والتسديدات", color = Color.Gray, fontSize = 13.sp)
             }
-            IconButton(onClick = onAdd) { Icon(Icons.Default.AddCircle, "إضافة", tint = Pink, modifier = Modifier.size(32.dp)) }
+            IconButton(onClick = onAdd) {
+                Icon(Icons.Default.AddCircle, "إضافة", tint = Pink, modifier = Modifier.size(32.dp))
+            }
         }
+
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SummaryCard("إجمالي الديون", totalOriginal, Pink, Modifier.weight(1f))
@@ -254,48 +332,111 @@ fun HomeScreen(debts: List<Debt>, onAdd: () -> Unit, onOpen: (Debt) -> Unit, act
             SummaryCard("المبالغ المسددة", totalPaid, Green, Modifier.weight(1f))
             SummaryCard("غير المسددين", debts.count { remaining(it) > 0 }.toDouble(), Color(0xFFB44B76), Modifier.weight(1f), false)
         }
-        Spacer(Modifier.height(16.dp))
+
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(18.dp),
+            label = { Text("بحث عن زبون") },
+            placeholder = { Text("الاسم، الهاتف، الموقع أو الملاحظة") },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Pink) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, "مسح البحث") }
+                }
+            }
+        )
+
+        Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("أحدث الديون", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(if (normalized.isBlank()) "أحدث الديون" else "نتائج البحث", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (normalized.isNotBlank()) Text("${shownDebts.size} نتيجة", color = Color.Gray, fontSize = 12.sp)
+            }
             TextButton(onClick = { exportAllDebts(activity, debts) }) { Text("تصدير الكل", color = Pink) }
         }
+
         if (debts.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("ماكو ديون مسجلة حالياً", color = Color.Gray) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("ماكو ديون مسجلة حالياً", color = Color.Gray)
+            }
+        } else if (shownDebts.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("ماكو زبون مطابق للبحث", color = Color.Gray)
+            }
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                items(debts.reversed(), key = { it.id }) { DebtCard(it, onOpen) }
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+                contentPadding = PaddingValues(bottom = 90.dp)
+            ) {
+                items(shownDebts.reversed(), key = { it.id }) { DebtCard(it, onOpen) }
             }
         }
-        Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
-            Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("إضافة دين جديد", fontWeight = FontWeight.Bold)
+
+        Button(
+            onClick = onAdd,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Pink)
+        ) {
+            Icon(Icons.Default.Add, null)
+            Spacer(Modifier.width(6.dp))
+            Text("إضافة دين جديد", fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun SummaryCard(title: String, value: Double, accent: Color, modifier: Modifier = Modifier, money: Boolean = true) {
-    Card(modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = if (accent == Green) Color(0xFFE5F7EF) else SoftPink)) {
+    Card(
+        modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = if (accent == Green) Color(0xFFE5F7EF) else SoftPink)
+    ) {
         Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, color = Color.DarkGray, fontSize = 13.sp, textAlign = TextAlign.Center)
             Spacer(Modifier.height(5.dp))
-            Text(if (money) String.format(Locale.US, "%.0f د.ع", value) else String.format(Locale.US, "%.0f", value), color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
+            Text(
+                if (money) String.format(Locale.US, "%,.0f د.ع", value) else String.format(Locale.US, "%.0f", value),
+                color = accent,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 19.sp
+            )
         }
     }
 }
 
 @Composable
 fun DebtCard(debt: Debt, onOpen: (Debt) -> Unit) {
-    Card(onClick = { onOpen(debt) }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(
+        onClick = { onOpen(debt) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
         Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (debt.paidDate.isEmpty()) Icons.Default.Person else Icons.Default.CheckCircle, null,
-                tint = if (debt.paidDate.isEmpty()) Pink else Green, modifier = Modifier.size(38.dp))
+            Icon(
+                if (debt.paidDate.isEmpty()) Icons.Default.Person else Icons.Default.CheckCircle,
+                null,
+                tint = if (debt.paidDate.isEmpty()) Pink else Green,
+                modifier = Modifier.size(38.dp)
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(debt.person, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                if (debt.phone.isNotBlank()) Text(debt.phone, color = Color.Gray, fontSize = 12.sp)
                 Text("تاريخ الدين: ${debt.debtDate}", color = Color.Gray)
                 if (debt.paidDate.isNotEmpty()) Text("تم التسديد: ${debt.paidDate}", color = Color(0xFF4C8A63))
             }
-            Text(String.format(Locale.US, "%.0f د.ع", remaining(debt)), fontWeight = FontWeight.Bold, color = if (remaining(debt) > 0) Pink else Green)
+            Text(
+                String.format(Locale.US, "%,.0f د.ع", remaining(debt)),
+                fontWeight = FontWeight.Bold,
+                color = if (remaining(debt) > 0) Pink else Green
+            )
         }
     }
 }
@@ -310,60 +451,98 @@ fun AddDebtScreen(onBack: () -> Unit, onSave: (String, Double, String, String, S
     var date by remember { mutableStateOf(today()) }
     var photoData by remember { mutableStateOf("") }
     val context = androidx.compose.ui.platform.LocalContext.current
+
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             photoData = encodeCustomerPhoto(context, uri) ?: ""
             if (photoData.isBlank()) Toast.makeText(context, "تعذر قراءة الصورة", Toast.LENGTH_SHORT).show()
         }
     }
+
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
             Text("إضافة زبون", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
             Spacer(Modifier.width(48.dp))
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 12.dp)
+        ) {
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    FilledIconButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.size(86.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = SoftPink)) {
-                        Icon(if (photoData.isBlank()) Icons.Default.CameraAlt else Icons.Default.CheckCircle, "إضافة صورة", tint = Pink, modifier = Modifier.size(38.dp))
+                    FilledIconButton(
+                        onClick = { photoPicker.launch("image/*") },
+                        modifier = Modifier.size(86.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = SoftPink)
+                    ) {
+                        Icon(
+                            if (photoData.isBlank()) Icons.Default.CameraAlt else Icons.Default.CheckCircle,
+                            "إضافة صورة",
+                            tint = Pink,
+                            modifier = Modifier.size(38.dp)
+                        )
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(if (photoData.isBlank()) "إضافة صورة (اختياري)" else "تم حفظ الصورة", color = if (photoData.isBlank()) Color.Gray else Green)
                 }
             }
             item { OutlinedTextField(person, { person = it }, Modifier.fillMaxWidth(), label = { Text("اسم الزبون *") }, leadingIcon = { Icon(Icons.Default.Person, null) }, singleLine = true) }
-            item { OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text("رقم الهاتف") }, leadingIcon = { Icon(Icons.Default.Phone, null) }, singleLine = true) }
+            item { OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text("رقم الهاتف") }, leadingIcon = { Icon(Icons.Default.Phone, null) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)) }
             item { OutlinedTextField(location, { location = it }, Modifier.fillMaxWidth(), label = { Text("الموقع") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, singleLine = true) }
             item { OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("ملاحظة") }, leadingIcon = { Icon(Icons.Default.EditNote, null) }, minLines = 3) }
             item { HorizontalDivider(); Text("بيانات الدين", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Pink) }
-            item { OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين *") }, singleLine = true) }
+            item { OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين *") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
             item { OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ الدين") }, singleLine = true) }
         }
-        Button(onClick = {
-            val value = amount.toDoubleOrNull() ?: 0.0
-            if (person.isNotBlank() && value > 0) onSave(person.trim(), value, date.ifBlank { today() }, note.trim(), phone.trim(), location.trim(), photoData)
-            else Toast.makeText(context, "أدخل اسم الزبون ومبلغ الدين", Toast.LENGTH_SHORT).show()
-        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
+
+        Button(
+            onClick = {
+                val value = amount.toDoubleOrNull() ?: 0.0
+                if (person.isNotBlank() && value > 0) {
+                    onSave(person.trim(), value, date.ifBlank { today() }, note.trim(), phone.trim(), location.trim(), photoData)
+                } else {
+                    Toast.makeText(context, "أدخل اسم الزبون ومبلغ الدين", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Pink)
+        ) {
             Text("حفظ", fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, onPayment: (Double, String) -> Unit, onAddDebt: (Double, String) -> Unit, onDelete: () -> Unit) {
+fun DebtDetailsScreen(
+    debt: Debt,
+    activity: MainActivity,
+    onBack: () -> Unit,
+    onPayment: (Double, String) -> Unit,
+    onAddDebt: (Double, String) -> Unit,
+    onDelete: () -> Unit
+) {
     var paymentText by remember(debt.id) { mutableStateOf("") }
     var paymentDate by remember(debt.id) { mutableStateOf(today()) }
     var newDebtText by remember(debt.id) { mutableStateOf("") }
     var newDebtDate by remember(debt.id) { mutableStateOf(today()) }
     var confirmDelete by remember { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize().background(Color(0xFFFFF9FB)).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") }
             Text("تفاصيل الزبون", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
             IconButton(onClick = { exportSingleDebt(activity, debt) }) { Icon(Icons.Default.Share, "مشاركة", tint = Pink) }
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
+
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 18.dp)
+        ) {
             item {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -389,6 +568,7 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                     }
                 }
             }
+
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -417,13 +597,14 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("الدين الأصلي", color = Pink, fontWeight = FontWeight.Bold)
-                            Text(String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(String.format(Locale.US, "%,.0f د.ع", initialDebtAmount(debt)), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                             Text("التاريخ: " + debt.debtDate, color = Color.Gray, fontSize = 12.sp)
                         }
                         Text("البداية", color = Color.Gray, fontSize = 12.sp)
                     }
                 }
             }
+
             val transactionLog = orderedTransactions(debt)
             items(transactionLog.indices.toList()) { index ->
                 val tx = transactionLog[index]
@@ -434,11 +615,8 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                 val isAddition = tx.type == "addition"
                 val accent = if (isAddition) Pink else Green
                 val cardBg = if (isAddition) Color(0xFFFFF0F5) else Color(0xFFF0FAF5)
-                Card(
-                    Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White)
-                ) {
+
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = RoundedCornerShape(50), color = cardBg) {
                             Text(
@@ -451,25 +629,21 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (isAddition) Icons.Default.AddCircle else Icons.Default.Payments,
-                                    null,
-                                    tint = accent,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Icon(if (isAddition) Icons.Default.AddCircle else Icons.Default.Payments, null, tint = accent, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(if (isAddition) "إضافة دين" else "تسديد", color = accent, fontWeight = FontWeight.Bold)
                             }
-                            Text(String.format(Locale.US, "%.0f د.ع", tx.amount), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(String.format(Locale.US, "%,.0f د.ع", tx.amount), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                             Text("التاريخ: " + tx.date, color = Color.Gray, fontSize = 12.sp)
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("المتبقي", color = Color.Gray, fontSize = 11.sp)
-                            Text(String.format(Locale.US, "%.0f د.ع", after), color = Color(0xFF7A263F), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(String.format(Locale.US, "%,.0f د.ع", after), color = Color(0xFF7A263F), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
             }
+
             if (remaining(debt) > 0) {
                 item {
                     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF2FBF7))) {
@@ -481,17 +655,29 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                             }
                             OutlinedTextField(paymentText, { paymentText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ التسديد (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                             OutlinedTextField(paymentDate, { paymentDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ التسديد") }, singleLine = true)
-                            Button(onClick = {
-                                val value = paymentText.toDoubleOrNull() ?: 0.0
-                                if (value > 0 && value <= remaining(debt)) { onPayment(value, paymentDate.ifBlank { today() }); paymentText = "" }
-                                else Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
-                            }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
-                                Icon(Icons.Default.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("تأكيد التسديد", fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    val value = paymentText.toDoubleOrNull() ?: 0.0
+                                    if (value > 0 && value <= remaining(debt)) {
+                                        onPayment(value, paymentDate.ifBlank { today() })
+                                        paymentText = ""
+                                    } else {
+                                        Toast.makeText(activity, "أدخل مبلغ صحيح لا يتجاوز الباقي", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Green)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("تأكيد التسديد", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             }
+
             item {
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3F7))) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -502,58 +688,86 @@ fun DebtDetailsScreen(debt: Debt, activity: MainActivity, onBack: () -> Unit, on
                         }
                         OutlinedTextField(newDebtText, { newDebtText = it }, Modifier.fillMaxWidth(), label = { Text("مبلغ الدين الإضافي (د.ع)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                         OutlinedTextField(newDebtDate, { newDebtDate = it }, Modifier.fillMaxWidth(), label = { Text("تاريخ إضافة الدين") }, singleLine = true)
-                        Button(onClick = {
-                            val value = newDebtText.toDoubleOrNull() ?: 0.0
-                            if (value > 0) {
-                                onAddDebt(value, newDebtDate.ifBlank { today() })
-                                newDebtText = ""
-                            } else {
-                                Toast.makeText(activity, "أدخل مبلغ دين صحيح", Toast.LENGTH_SHORT).show()
-                            }
-                        }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Pink)) {
-                            Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("تأكيد إضافة الدين", fontWeight = FontWeight.Bold)
+                        Button(
+                            onClick = {
+                                val value = newDebtText.toDoubleOrNull() ?: 0.0
+                                if (value > 0) {
+                                    onAddDebt(value, newDebtDate.ifBlank { today() })
+                                    newDebtText = ""
+                                } else {
+                                    Toast.makeText(activity, "أدخل مبلغ دين صحيح", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Pink)
+                        ) {
+                            Icon(Icons.Default.Add, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("تأكيد إضافة الدين", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
+
             item {
-                OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Text("حذف الزبون والدين") }
+                OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Text("حذف الزبون والدين")
+                }
             }
         }
     }
+
     if (confirmDelete) {
-        AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("تأكيد الحذف") },
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("تأكيد الحذف") },
             text = { Text("راح ينحذف الدين وكل سجل التسديدات لهذا الزبون. متأكد؟") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("حذف", color = Color.Red) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } })
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("حذف", color = Color.Red) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } }
+        )
     }
 }
 
 @Composable
 private fun CustomerAmountCard(title: String, amount: Double, color: Color, modifier: Modifier = Modifier) {
-    Card(modifier, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = if (color == Green) Color(0xFFEAF8F1) else SoftPink)) {
+    Card(
+        modifier,
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = if (color == Green) Color(0xFFEAF8F1) else SoftPink)
+    ) {
         Column(Modifier.padding(vertical = 11.dp, horizontal = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, fontSize = 11.sp, color = Color.Gray, textAlign = TextAlign.Center)
-            Text(String.format(Locale.US, "%.0f", amount), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color)
+            Text(String.format(Locale.US, "%,.0f", amount), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = color)
             Text("د.ع", fontSize = 10.sp, color = Color.Gray)
         }
     }
 }
 
 private fun shareBitmap(activity: MainActivity, bitmap: Bitmap, fileName: String) {
-    val values = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/DebtBook")
+    try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/DebtBook")
+            }
+            val uri = activity.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+            activity.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            activity.startActivity(Intent.createChooser(intent, "مشاركة صورة الدين"))
+        } else {
+            Toast.makeText(activity, "مشاركة الصور مدعومة بشكل أفضل على Android 10 فما فوق", Toast.LENGTH_SHORT).show()
+        }
+    } catch (_: Exception) {
+        Toast.makeText(activity, "تعذر تصدير الصورة", Toast.LENGTH_SHORT).show()
     }
-    val uri = activity.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
-    activity.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "image/png"
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    activity.startActivity(Intent.createChooser(intent, "مشاركة صورة الدين"))
 }
 
 private fun makeDebtBitmap(debt: Debt): Bitmap {
@@ -564,10 +778,11 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
     val canvas = Canvas(bitmap)
     canvas.drawColor(android.graphics.Color.WHITE)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.rgb(35,35,35)
+        color = android.graphics.Color.rgb(35, 35, 35)
         textSize = 42f
         textAlign = Paint.Align.RIGHT
     }
+
     var y = 75f
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
     canvas.drawText("تفاصيل الدين", 980f, y, paint)
@@ -576,7 +791,7 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
     canvas.drawText(debt.person, 980f, y, paint)
     y += 74
     paint.textSize = 36f
-    canvas.drawText("الدين الأصلي: " + String.format(Locale.US, "%.0f د.ع", initialDebtAmount(debt)) + "   " + debt.debtDate, 980f, y, paint)
+    canvas.drawText("الدين الأصلي: " + String.format(Locale.US, "%,.0f د.ع", initialDebtAmount(debt)) + "   " + debt.debtDate, 980f, y, paint)
     y += 72
 
     var runningDebt = initialDebtAmount(debt)
@@ -588,25 +803,27 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
         paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
         paint.color = if (isAddition) android.graphics.Color.rgb(190, 35, 95) else android.graphics.Color.rgb(30, 145, 90)
         canvas.drawText(
-            (index + 1).toString() + " - " + (if (isAddition) "إضافة دين: " else "تسديد: ") + String.format(Locale.US, "%.0f د.ع", tx.amount),
-            980f, y, paint
+            (index + 1).toString() + " - " + (if (isAddition) "إضافة دين: " else "تسديد: ") + String.format(Locale.US, "%,.0f د.ع", tx.amount),
+            980f,
+            y,
+            paint
         )
         paint.typeface = android.graphics.Typeface.DEFAULT
-        paint.color = android.graphics.Color.rgb(75,75,75)
+        paint.color = android.graphics.Color.rgb(75, 75, 75)
         canvas.drawText(tx.date, 360f, y, paint)
         y += 52
-        paint.color = android.graphics.Color.rgb(35,35,35)
-        canvas.drawText("المتبقي بعد العملية: " + String.format(Locale.US, "%.0f د.ع", balance), 980f, y, paint)
+        paint.color = android.graphics.Color.rgb(35, 35, 35)
+        canvas.drawText("المتبقي بعد العملية: " + String.format(Locale.US, "%,.0f د.ع", balance), 980f, y, paint)
         y += 80
     }
 
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-    paint.color = android.graphics.Color.rgb(35,35,35)
-    canvas.drawText("إجمالي الدين: " + String.format(Locale.US, "%.0f د.ع", debt.amount), 980f, y, paint)
+    paint.color = android.graphics.Color.rgb(35, 35, 35)
+    canvas.drawText("إجمالي الدين: " + String.format(Locale.US, "%,.0f د.ع", debt.amount), 980f, y, paint)
     y += 55
-    canvas.drawText("إجمالي المسدد: " + String.format(Locale.US, "%.0f د.ع", debt.paidAmount), 980f, y, paint)
+    canvas.drawText("إجمالي المسدد: " + String.format(Locale.US, "%,.0f د.ع", debt.paidAmount), 980f, y, paint)
     y += 55
-    canvas.drawText("المتبقي: " + String.format(Locale.US, "%.0f د.ع", remaining(debt)), 980f, y, paint)
+    canvas.drawText("المتبقي: " + String.format(Locale.US, "%,.0f د.ع", remaining(debt)), 980f, y, paint)
     y += 65
 
     if (debt.note.isNotBlank()) {
@@ -617,10 +834,11 @@ private fun makeDebtBitmap(debt: Debt): Bitmap {
 
     paint.textSize = 28f
     paint.typeface = android.graphics.Typeface.DEFAULT
-    paint.color = android.graphics.Color.rgb(90,90,90)
+    paint.color = android.graphics.Color.rgb(90, 90, 90)
     canvas.drawText("دفتر الديون", 980f, height - 35f, paint)
     return bitmap
 }
+
 private fun exportSingleDebt(activity: MainActivity, debt: Debt) {
     shareBitmap(activity, makeDebtBitmap(debt), "debt_" + debt.id + ".png")
 }
@@ -633,15 +851,19 @@ private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     canvas.drawColor(android.graphics.Color.WHITE)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(35,35,35); textAlign = Paint.Align.RIGHT }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(35, 35, 35)
+        textAlign = Paint.Align.RIGHT
+    }
     val right = 1320f
     paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
     paint.textSize = 52f
     canvas.drawText("سجل الديون الكامل", right, 75f, paint)
     paint.typeface = android.graphics.Typeface.DEFAULT
     paint.textSize = 34f
-    canvas.drawText("العدد: " + debts.size + "    إجمالي الديون: " + String.format(Locale.US, "%.0f", debts.sumOf { it.amount }) + " د.ع", right, 135f, paint)
-    canvas.drawText("المسدد: " + String.format(Locale.US, "%.0f", debts.sumOf { it.paidAmount }) + " د.ع    المتبقي: " + String.format(Locale.US, "%.0f", debts.sumOf { remaining(it) }) + " د.ع", right, 190f, paint)
+    canvas.drawText("العدد: " + debts.size + "    إجمالي الديون: " + String.format(Locale.US, "%,.0f", debts.sumOf { it.amount }) + " د.ع", right, 135f, paint)
+    canvas.drawText("المسدد: " + String.format(Locale.US, "%,.0f", debts.sumOf { it.paidAmount }) + " د.ع    المتبقي: " + String.format(Locale.US, "%,.0f", debts.sumOf { remaining(it) }) + " د.ع", right, 190f, paint)
+
     var y = 285f
     debts.forEachIndexed { index, debt ->
         paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -650,62 +872,89 @@ private fun exportAllDebts(activity: MainActivity, debts: List<Debt>) {
         y += 48f
         paint.typeface = android.graphics.Typeface.DEFAULT
         paint.textSize = 31f
-        canvas.drawText("الدين: " + String.format(Locale.US, "%.0f", debt.amount) + " د.ع    |    تاريخ الدين: " + debt.debtDate, right, y, paint)
+        canvas.drawText("الدين: " + String.format(Locale.US, "%,.0f", debt.amount) + " د.ع    |    تاريخ الدين: " + debt.debtDate, right, y, paint)
         y += 43f
-        canvas.drawText("المسدد: " + String.format(Locale.US, "%.0f", debt.paidAmount) + " د.ع    |    المتبقي: " + String.format(Locale.US, "%.0f", remaining(debt)) + " د.ع", right, y, paint)
+        canvas.drawText("المسدد: " + String.format(Locale.US, "%,.0f", debt.paidAmount) + " د.ع    |    المتبقي: " + String.format(Locale.US, "%,.0f", remaining(debt)) + " د.ع", right, y, paint)
         y += 43f
         val status = if (remaining(debt) <= 0.0) "مسدد بالكامل" else "غير مسدد بالكامل"
         val lastPayment = debt.payments.lastOrNull()?.date
-        canvas.drawText(if (lastPayment != null) "الحالة: " + status + "    |    آخر تسديد: " + lastPayment else "الحالة: " + status + "    |    لا توجد تسديدات", right, y, paint)
+        canvas.drawText(
+            if (lastPayment != null) "الحالة: $status    |    آخر تسديد: $lastPayment" else "الحالة: $status    |    لا توجد تسديدات",
+            right,
+            y,
+            paint
+        )
         y += 43f
         if (debt.note.isNotBlank()) {
             val safeNote = if (debt.note.length > 55) debt.note.take(52) + "..." else debt.note
-            canvas.drawText("ملاحظة: " + safeNote, right, y, paint)
+            canvas.drawText("ملاحظة: $safeNote", right, y, paint)
         }
-        paint.color = android.graphics.Color.rgb(225,225,225)
+        paint.color = android.graphics.Color.rgb(225, 225, 225)
         canvas.drawLine(80f, y + 28f, right, y + 28f, paint)
-        paint.color = android.graphics.Color.rgb(35,35,35)
+        paint.color = android.graphics.Color.rgb(35, 35, 35)
         y += 53f
     }
     shareBitmap(activity, bitmap, "all_debts.png")
 }
-
-
-
 
 private fun encodeCustomerPhoto(context: Context, uri: Uri): String? {
     return try {
         val original = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return null
         val maxSide = 720
         val scale = minOf(1f, maxSide.toFloat() / maxOf(original.width, original.height).toFloat())
-        val bitmap = if (scale < 1f) Bitmap.createScaledBitmap(original, (original.width * scale).toInt(), (original.height * scale).toInt(), true) else original
+        val bitmap = if (scale < 1f) {
+            Bitmap.createScaledBitmap(original, (original.width * scale).toInt(), (original.height * scale).toInt(), true)
+        } else original
         val out = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
         Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-    } catch (_: Exception) { null }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun decodeCustomerPhoto(data: String): Bitmap? {
     if (data.isBlank()) return null
-    return try { BitmapFactory.decodeByteArray(Base64.decode(data, Base64.DEFAULT), 0, Base64.decode(data, Base64.DEFAULT).size) } catch (_: Exception) { null }
+    return try {
+        val bytes = Base64.decode(data, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun debtsToJson(debts: List<Debt>): String {
     return JSONArray().apply {
         debts.forEach { debt ->
             put(JSONObject().apply {
-                put("id", debt.id); put("person", debt.person); put("amount", debt.amount)
-                put("debtDate", debt.debtDate); put("paidDate", debt.paidDate); put("note", debt.note)
-                put("paidAmount", debt.paidAmount); put("phone", debt.phone); put("location", debt.location); put("photoUri", debt.photoUri); put("photoData", debt.photoData)
+                put("id", debt.id)
+                put("person", debt.person)
+                put("amount", debt.amount)
+                put("debtDate", debt.debtDate)
+                put("paidDate", debt.paidDate)
+                put("note", debt.note)
+                put("paidAmount", debt.paidAmount)
+                put("phone", debt.phone)
+                put("location", debt.location)
+                put("photoUri", debt.photoUri)
+                put("photoData", debt.photoData)
                 put("payments", JSONArray().apply {
-                    debt.payments.forEach { p -> put(JSONObject().apply { put("amount", p.amount); put("date", p.date) }) }
+                    debt.payments.forEach { p ->
+                        put(JSONObject().apply { put("amount", p.amount); put("date", p.date) })
+                    }
                 })
                 put("additions", JSONArray().apply {
-                    debt.additions.forEach { a -> put(JSONObject().apply { put("amount", a.amount); put("date", a.date) }) }
+                    debt.additions.forEach { a ->
+                        put(JSONObject().apply { put("amount", a.amount); put("date", a.date) })
+                    }
                 })
                 put("transactions", JSONArray().apply {
                     orderedTransactions(debt).forEach { t ->
-                        put(JSONObject().apply { put("type", t.type); put("amount", t.amount); put("date", t.date) })
+                        put(JSONObject().apply {
+                            put("type", t.type)
+                            put("amount", t.amount)
+                            put("date", t.date)
+                        })
                     }
                 })
             })
@@ -713,24 +962,43 @@ private fun debtsToJson(debts: List<Debt>): String {
     }.toString()
 }
 
+private fun backupRootJson(debts: List<Debt>): String {
+    return JSONObject().apply {
+        put("version", 5)
+        put("app", "دفتر الديون")
+        put("updatedAt", System.currentTimeMillis())
+        put("debts", JSONArray(debtsToJson(debts)))
+    }.toString(2)
+}
+
 private fun parseDebtsArray(text: String): List<Debt> {
     val array = JSONArray(text)
     return List(array.length()) { i ->
         val o = array.getJSONObject(i)
         Debt(
-            o.optLong("id", System.currentTimeMillis() + i), o.optString("person"), o.optDouble("amount", 0.0),
-            o.optString("debtDate"), o.optString("paidDate"), o.optString("note"),
+            o.optLong("id", System.currentTimeMillis() + i),
+            o.optString("person"),
+            o.optDouble("amount", 0.0),
+            o.optString("debtDate"),
+            o.optString("paidDate"),
+            o.optString("note"),
             o.optDouble("paidAmount", if (o.optString("paidDate").isNotEmpty()) o.optDouble("amount", 0.0) else 0.0),
             buildList {
                 val ps = o.optJSONArray("payments")
                 if (ps != null) for (j in 0 until ps.length()) {
-                    val p = ps.getJSONObject(j); add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
+                    val p = ps.getJSONObject(j)
+                    add(Payment(p.optDouble("amount", 0.0), p.optString("date")))
                 }
-            }, o.optString("phone"), o.optString("location"), o.optString("photoUri"), o.optString("photoData"),
+            },
+            o.optString("phone"),
+            o.optString("location"),
+            o.optString("photoUri"),
+            o.optString("photoData"),
             buildList {
                 val additions = o.optJSONArray("additions")
                 if (additions != null) for (j in 0 until additions.length()) {
-                    val a = additions.getJSONObject(j); add(DebtAddition(a.optDouble("amount", 0.0), a.optString("date")))
+                    val a = additions.getJSONObject(j)
+                    add(DebtAddition(a.optDouble("amount", 0.0), a.optString("date")))
                 }
             },
             buildList {
@@ -760,74 +1028,128 @@ private fun saveLocalDebts(context: Context, debts: List<Debt>): Boolean {
         val current = prefs.getString(PREFS_KEY, null)
         val editor = prefs.edit()
         if (current != null && current != next) {
-            try { parseDebtsArray(current); editor.putString(PREFS_KEY_PREVIOUS, current) } catch (_: Exception) { }
+            try {
+                parseDebtsArray(current)
+                editor.putString(PREFS_KEY_PREVIOUS, current)
+            } catch (_: Exception) { }
         }
         editor.putString(PREFS_KEY, next).commit()
-    } catch (_: Exception) { false }
+    } catch (_: Exception) {
+        false
+    }
 }
 
 private fun saveAppExternalBackup(activity: MainActivity, debts: List<Debt>) {
+    if (debts.isEmpty()) return
     try {
         val dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: return
         if (!dir.exists()) dir.mkdirs()
         val target = java.io.File(dir, BACKUP_FILE_NAME)
         val temp = java.io.File(dir, BACKUP_FILE_NAME + ".tmp")
-        val root = JSONObject().apply {
-            put("version", 4); put("app", "دفتر الديون"); put("updatedAt", System.currentTimeMillis())
-            put("debts", JSONArray(debtsToJson(debts)))
-        }
-        temp.writeText(root.toString(2), Charsets.UTF_8)
+        temp.writeText(backupRootJson(debts), Charsets.UTF_8)
         if (target.exists()) target.delete()
         temp.renameTo(target)
     } catch (_: Exception) { }
 }
 
-private fun saveBackup(activity: MainActivity, debts: List<Debt>) {
+private fun saveBackup(activity: MainActivity, debts: List<Debt>): Boolean {
+    if (debts.isEmpty()) return false
     saveAppExternalBackup(activity, debts)
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
-    try {
-        val dataJson = debtsToJson(debts)
-        val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val dataHash = dataJson.hashCode().toString()
-        if (prefs.getString(PREFS_BACKUP_HASH, null) == dataHash) return
 
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+        return true
+    }
+
+    return try {
         val resolver = activity.contentResolver
-        val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, "ديون احتياط_" + stamp + ".json")
-            put(MediaStore.Downloads.MIME_TYPE, "application/json")
-            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DebtBook")
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }) ?: return
-        val root = JSONObject().apply {
-            put("version", 4)
-            put("app", "دفتر الديون")
-            put("updatedAt", System.currentTimeMillis())
-            put("debts", JSONArray(dataJson))
+        val relativePath = Environment.DIRECTORY_DOWNLOADS + "/DebtBook/"
+        val existingUris = mutableListOf<Pair<Uri, String>>()
+
+        resolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME),
+            MediaStore.Downloads.RELATIVE_PATH + " = ?",
+            arrayOf(relativePath),
+            MediaStore.Downloads.DATE_MODIFIED + " DESC"
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameCol) ?: continue
+                if (name == BACKUP_FILE_NAME || (name.startsWith("ديون احتياط_") && name.endsWith(".json"))) {
+                    val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(idCol))
+                    existingUris.add(uri to name)
+                }
+            }
         }
-        resolver.openOutputStream(uri, "w")?.use {
-            it.write(root.toString(2).toByteArray(Charsets.UTF_8))
+
+        var targetUri = existingUris.firstOrNull { it.second == BACKUP_FILE_NAME }?.first
+        var newlyCreated = false
+        if (targetUri == null) {
+            targetUri = resolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_FILE_NAME)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                    put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+            ) ?: return false
+            newlyCreated = true
+        }
+
+        resolver.openOutputStream(targetUri, "wt")?.use {
+            it.write(backupRootJson(debts).toByteArray(Charsets.UTF_8))
             it.flush()
-        } ?: run {
-            resolver.delete(uri, null, null)
-            return
+        } ?: return false
+
+        if (newlyCreated) {
+            resolver.update(
+                targetUri,
+                ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                null,
+                null
+            )
         }
-        resolver.update(uri, ContentValues().apply {
-            put(MediaStore.Downloads.IS_PENDING, 0)
-        }, null, null)
-        prefs.edit().putString(PREFS_BACKUP_HASH, dataHash).commit()
+
+        existingUris.forEach { (uri, name) ->
+            if (uri != targetUri && (name == BACKUP_FILE_NAME || name.startsWith("ديون احتياط_"))) {
+                runCatching { resolver.delete(uri, null, null) }
+            }
+        }
+        true
     } catch (_: Exception) {
-        // External backup must never interfere with the primary internal ledger.
+        false
     }
 }
 
 private fun importDebtsFromUri(activity: MainActivity, uri: Uri): List<Debt>? {
     return try {
-        val text = activity.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: return null
-        val root = JSONObject(text)
-        val array = root.optJSONArray("debts") ?: return null
-        val parsed = parseDebtsArray(array.toString())
-        if (parsed.any { it.person.isBlank() || it.amount < 0.0 || it.paidAmount < 0.0 || it.paidAmount > it.amount }) return null
+        val text = activity.contentResolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?.trim()
+            ?: return null
+
+        val parsed = when {
+            text.startsWith("[") -> parseDebtsArray(text)
+            text.startsWith("{") -> {
+                val root = JSONObject(text)
+                val array = root.optJSONArray("debts") ?: return null
+                parseDebtsArray(array.toString())
+            }
+            else -> return null
+        }
+
+        if (parsed.any {
+                it.person.isBlank() ||
+                    it.amount < 0.0 ||
+                    it.paidAmount < 0.0 ||
+                    it.paidAmount > it.amount
+            }) return null
+
         parsed
-    } catch (_: Exception) { null }
+    } catch (_: Exception) {
+        null
+    }
 }
