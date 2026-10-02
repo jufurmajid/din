@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
 
     steps:
       - name: Checkout
@@ -20,6 +21,9 @@ jobs:
 
       - name: Apply professional rebrand
         run: python3 .github/scripts/professional_rebrand.py
+
+      - name: Apply complete export-all fix
+        run: python3 .github/scripts/fix_export_all.py
 
       - name: Verify old branding is gone
         run: |
@@ -49,6 +53,20 @@ jobs:
         with:
           gradle-version: '8.10'
 
+      - name: Restore original v2 signing key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p signing-source
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/11243212079/zip" > signing-source.zip
+          unzip -j signing-source.zip "daftar-deyoon-release.jks" "signing-info.txt" -d signing-source
+          test -s signing-source/daftar-deyoon-release.jks
+          PASS=$(sed -n 's/^[[:space:]]*Keystore password:[[:space:]]*//p' signing-source/signing-info.txt | head -n1)
+          test -n "$PASS"
+          echo "::add-mask::$PASS"
+          echo "KEYSTORE_PASS=$PASS" >> "$GITHUB_ENV"
+
       - name: Build release APK
         run: gradle clean assembleRelease --stacktrace
 
@@ -59,25 +77,12 @@ jobs:
           BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/app-release-aligned.apk"
-          FINAL="app/build/outputs/apk/release/Daftar-Deyoon-v2.0.apk"
-          KEYSTORE="app/build/outputs/apk/release/daftar-deyoon-release.jks"
-          INFO="app/build/outputs/apk/release/signing-info.txt"
-          VERIFY="app/build/outputs/apk/release/verification.txt"
+          FINAL="app/build/outputs/apk/release/Daftar-Deyoon-v2.1.apk"
+          KEYSTORE="signing-source/daftar-deyoon-release.jks"
+          VERIFY="app/build/outputs/apk/release/verification-v2.1.txt"
 
           test -f "$UNSIGNED"
-
-          PASS=$(openssl rand -hex 20)
-          echo "::add-mask::$PASS"
-
-          keytool -genkeypair -v \
-            -keystore "$KEYSTORE" \
-            -storepass "$PASS" \
-            -keypass "$PASS" \
-            -alias daftar-deyoon \
-            -keyalg RSA \
-            -keysize 4096 \
-            -validity 10000 \
-            -dname "CN=Daftar Deyoon, OU=Android App, O=Jafar Majid, L=Diwaniyah, C=IQ"
+          test -f "$KEYSTORE"
 
           "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
           "$BUILD_TOOLS/zipalign" -c -v 4 "$ALIGNED"
@@ -85,8 +90,8 @@ jobs:
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$KEYSTORE" \
             --ks-key-alias daftar-deyoon \
-            --ks-pass "pass:$PASS" \
-            --key-pass "pass:$PASS" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --key-pass "pass:$KEYSTORE_PASS" \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
@@ -98,32 +103,25 @@ jobs:
           "$BUILD_TOOLS/aapt" dump badging "$FINAL" | tee -a "$VERIFY"
           "$BUILD_TOOLS/aapt" dump permissions "$FINAL" | tee -a "$VERIFY"
 
-          grep -q "package: name='com.jafarmajid.debtbook'" "$VERIFY"
+          grep -q "package: name='com.jafarmajid.debtbook' versionCode='3' versionName='2.1'" "$VERIFY"
           grep -q "application-label:'دفتر ديون'" "$VERIFY"
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$VERIFY"
+          grep -q "Signer #1 certificate SHA-256 digest: 94d109f70d69ca4fc718cc4e62b539103cd7eddb602ffddaf7b53053f93b2328" "$VERIFY"
 
           if unzip -p "$FINAL" classes.dex classes2.dex classes3.dex classes4.dex 2>/dev/null | strings | grep -qiE 'blusher|كوزمتك|cosmetic'; then
             echo "Old branding found inside compiled APK" | tee -a "$VERIFY"
             exit 1
           fi
 
-          cat > "$INFO" <<EOF
-          تطبيق: دفتر ديون
-          الإصدار: 2.0
-          الحزمة: com.jafarmajid.debtbook
-          Alias: daftar-deyoon
-          Keystore password: $PASS
-          ملاحظة: احتفظ بملف keystore وهذه كلمة المرور لأي تحديث مستقبلي حتى يقبل أندرويد التحديث فوق النسخة الحالية.
-          EOF
+          unzip -p "$FINAL" classes.dex classes2.dex classes3.dex classes4.dex 2>/dev/null | strings | grep -q "مشاركة دفتر الديون الكامل"
+          unzip -p "$FINAL" classes.dex classes2.dex classes3.dex classes4.dex 2>/dev/null | strings | grep -q "ExportAll"
 
       - name: Upload final package
         uses: actions/upload-artifact@v4
         with:
-          name: Daftar-Deyoon-v2-final
+          name: Daftar-Deyoon-v2.1-export-fix
           path: |
-            app/build/outputs/apk/release/Daftar-Deyoon-v2.0.apk
-            app/build/outputs/apk/release/daftar-deyoon-release.jks
-            app/build/outputs/apk/release/signing-info.txt
-            app/build/outputs/apk/release/verification.txt
+            app/build/outputs/apk/release/Daftar-Deyoon-v2.1.apk
+            app/build/outputs/apk/release/verification-v2.1.txt
           if-no-files-found: error
           retention-days: 30
