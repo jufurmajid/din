@@ -53,6 +53,12 @@ jobs:
             --add-data "windows/app.ico;." `
             windows/main.py
 
+      - name: Test packaged portable executable
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath ".\dist\Daftar-Deyoon-Portable-v1.0.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Portable executable self-test failed with exit code $($p.ExitCode)" }
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
@@ -61,6 +67,22 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "windows\installer.iss"
+
+      - name: Test installer and installed executable
+        shell: pwsh
+        run: |
+          $setup = Resolve-Path "dist\installer\Daftar-Deyoon-Setup-v1.0.exe"
+          $installDir = Join-Path $env:TEMP "DaftarDeyoonInstallTest"
+          if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
+          $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/DIR=$installDir")
+          $i = Start-Process -FilePath $setup -ArgumentList $args -Wait -PassThru
+          if ($i.ExitCode -ne 0) { throw "Installer failed with exit code $($i.ExitCode)" }
+          $installedExe = Join-Path $installDir "DaftarDeyoon.exe"
+          if (!(Test-Path $installedExe)) { throw "Installed executable missing" }
+          $a = Start-Process -FilePath $installedExe -ArgumentList "--self-test" -Wait -PassThru
+          if ($a.ExitCode -ne 0) { throw "Installed executable self-test failed with exit code $($a.ExitCode)" }
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          if (Test-Path $uninstaller) { Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait | Out-Null }
 
       - name: Verify build outputs
         shell: pwsh
@@ -75,6 +97,10 @@ jobs:
           @"
           دفتر ديون Windows v1.0
           Backup format: Android-compatible JSON version 5
+          Source data self-test: PASS
+          Portable packaged self-test: PASS
+          Silent installer test: PASS
+          Installed executable self-test: PASS
           Setup SHA256: $setupHash
           Portable SHA256: $portableHash
           "@ | Set-Content -Encoding UTF8 "dist\windows-verification.txt"
