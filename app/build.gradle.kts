@@ -3,16 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
 android {
-    namespace = "com.blusher.cosmetics"
+    namespace = "com.jafarmajid.debtbook"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.blusher.cosmetics"
+        applicationId = "com.jafarmajid.debtbook"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     compileOptions {
@@ -25,7 +26,16 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+    }
 }
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")

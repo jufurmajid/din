@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Professional APK
 
 on:
   workflow_dispatch:
@@ -10,12 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Enable multi-file backup import
         run: python3 .github/scripts/enable_multi_backup_import.py
+
+      - name: Apply professional rebrand
+        run: python3 .github/scripts/professional_rebrand.py
+
+      - name: Verify old branding is gone
+        run: |
+          if grep -RIniE 'blusher|كوزمتك|cosmetic' app/src/main app/build.gradle.kts; then
+            echo "Old branding is still present"
+            exit 1
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -25,25 +36,92 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
 
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10'
 
-      - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+      - name: Build release APK
+        run: gradle clean assembleRelease --stacktrace
 
-      - name: Upload APK
+      - name: Align, sign and verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="app/build/outputs/apk/release/app-release-aligned.apk"
+          FINAL="app/build/outputs/apk/release/Daftar-Deyoon-v2.0.apk"
+          KEYSTORE="app/build/outputs/apk/release/daftar-deyoon-release.jks"
+          INFO="app/build/outputs/apk/release/signing-info.txt"
+          VERIFY="app/build/outputs/apk/release/verification.txt"
+
+          test -f "$UNSIGNED"
+
+          PASS=$(openssl rand -hex 20)
+          echo "::add-mask::$PASS"
+
+          keytool -genkeypair -v \
+            -keystore "$KEYSTORE" \
+            -storepass "$PASS" \
+            -keypass "$PASS" \
+            -alias daftar-deyoon \
+            -keyalg RSA \
+            -keysize 4096 \
+            -validity 10000 \
+            -dname "CN=Daftar Deyoon, OU=Android App, O=Jafar Majid, L=Diwaniyah, C=IQ"
+
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$ALIGNED"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$ALIGNED"
+
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias daftar-deyoon \
+            --ks-pass "pass:$PASS" \
+            --key-pass "pass:$PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$FINAL" \
+            "$ALIGNED"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$FINAL" | tee "$VERIFY"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$FINAL" | tee -a "$VERIFY"
+          "$BUILD_TOOLS/aapt" dump badging "$FINAL" | tee -a "$VERIFY"
+          "$BUILD_TOOLS/aapt" dump permissions "$FINAL" | tee -a "$VERIFY"
+
+          grep -q "package: name='com.jafarmajid.debtbook'" "$VERIFY"
+          grep -q "application-label:'دفتر ديون'" "$VERIFY"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$VERIFY"
+
+          if unzip -p "$FINAL" classes.dex classes2.dex classes3.dex classes4.dex 2>/dev/null | strings | grep -qiE 'blusher|كوزمتك|cosmetic'; then
+            echo "Old branding found inside compiled APK" | tee -a "$VERIFY"
+            exit 1
+          fi
+
+          cat > "$INFO" <<EOF
+          تطبيق: دفتر ديون
+          الإصدار: 2.0
+          الحزمة: com.jafarmajid.debtbook
+          Alias: daftar-deyoon
+          Keystore password: $PASS
+          ملاحظة: احتفظ بملف keystore وهذه كلمة المرور لأي تحديث مستقبلي حتى يقبل أندرويد التحديث فوق النسخة الحالية.
+          EOF
+
+      - name: Upload final package
         uses: actions/upload-artifact@v4
         with:
-          name: دفتر-ديون-بلشر-كوزمتك-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: Daftar-Deyoon-v2-final
+          path: |
+            app/build/outputs/apk/release/Daftar-Deyoon-v2.0.apk
+            app/build/outputs/apk/release/daftar-deyoon-release.jks
+            app/build/outputs/apk/release/signing-info.txt
+            app/build/outputs/apk/release/verification.txt
           if-no-files-found: error
+          retention-days: 30
