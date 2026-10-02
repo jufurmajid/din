@@ -1,0 +1,91 @@
+name: Build Windows App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySide6==6.8.2.1 pyinstaller==6.11.1 pillow==11.1.0
+
+      - name: Generate app icon
+        run: python windows/make_icon.py
+
+      - name: Run data compatibility self-test
+        run: python windows/main.py --self-test
+
+      - name: Build installed application folder
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed `
+            --name DaftarDeyoon `
+            --icon windows/app.ico `
+            --add-data "windows/app.ico;." `
+            windows/main.py
+
+      - name: Build portable EXE
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onefile `
+            --name Daftar-Deyoon-Portable-v1.0 `
+            --icon windows/app.ico `
+            --add-data "windows/app.ico;." `
+            windows/main.py
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "windows\installer.iss"
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          $setup = "dist\installer\Daftar-Deyoon-Setup-v1.0.exe"
+          $portable = "dist\Daftar-Deyoon-Portable-v1.0.exe"
+          if (!(Test-Path $setup)) { throw "Installer missing" }
+          if (!(Test-Path $portable)) { throw "Portable EXE missing" }
+          Get-Item $setup, $portable | Format-Table Name,Length
+          $setupHash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+          $portableHash = (Get-FileHash $portable -Algorithm SHA256).Hash.ToLower()
+          @"
+          دفتر ديون Windows v1.0
+          Backup format: Android-compatible JSON version 5
+          Setup SHA256: $setupHash
+          Portable SHA256: $portableHash
+          "@ | Set-Content -Encoding UTF8 "dist\windows-verification.txt"
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Daftar-Deyoon-Windows-v1.0
+          path: |
+            dist/installer/Daftar-Deyoon-Setup-v1.0.exe
+            dist/Daftar-Deyoon-Portable-v1.0.exe
+            dist/windows-verification.txt
+          if-no-files-found: error
+          retention-days: 30
